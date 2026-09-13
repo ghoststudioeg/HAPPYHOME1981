@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&amp;display=swap');
+      .brand-bold {
+        font-family: 'Cairo', 'Tajawal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 900;
+      }
+      .brand-slogan {
+        font-family: 'Cairo', 'Tajawal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 700;
+      }
+    </style>
+  </defs>
+
+  <!-- Solid Black Background matching the official brand identity -->
+  <rect width="600" height="600" fill="#000000" />
+
+  <!-- Centered Logo Graphics -->
+  <g id="logo-content" transform="translate(45, 140)">
+    <!-- 1. Architectural Roof & 4-Pane Window Accent -->
+    <g id="roof-and-window">
+      <!-- Left thick diagonal rafter -->
+      <path d="M 230 76 L 310 24 L 320 31 L 248 76 Z" fill="#FFFFFF" />
+      
+      <!-- 4-Pane Square Window (2x2 Grid) -->
+      <rect x="303" y="47" width="11" height="11" rx="1.5" fill="#FFFFFF" />
+      <rect x="318" y="47" width="11" height="11" rx="1.5" fill="#FFFFFF" />
+      <rect x="303" y="62" width="11" height="11" rx="1.5" fill="#FFFFFF" />
+      <rect x="318" y="62" width="11" height="11" rx="1.5" fill="#FFFFFF" />
+
+      <!-- Right diagonal rafter -->
+      <path d="M 334 52 L 374 76 L 356 76 L 325 58 Z" fill="#FFFFFF" />
+    </g>
+
+    <!-- 2. Main Brand Line: "1981 البيت السعيد" -->
+    <text x="35" y="122" class="brand-bold" font-size="52" fill="#FFFFFF" letter-spacing="-0.5">
+      1981
+    </text>
+
+    <text x="475" y="122" text-anchor="end" class="brand-bold" font-size="53" fill="#FFFFFF" letter-spacing="0">
+      البيت السعيد
+    </text>
+
+    <!-- 3. Slogan: "قسط كل اللي نفسك فيه" -->
+    <text x="255" y="162" text-anchor="middle" class="brand-slogan" font-size="22" fill="#FFFFFF" letter-spacing="0.5">
+      قسط كل اللي نفسك فيه
+    </text>
+  </g>
+</svg>

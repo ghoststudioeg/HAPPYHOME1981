@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>__TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__" />
+    <link rel="canonical" href="__CANONICAL__" />
+    <meta name="robots" content="__ROBOTS__" />
+    <meta property="og:title" content="__TITLE__" />
+    <meta property="og:description" content="__DESCRIPTION__" />
+    <meta property="og:type" content="__TYPE__" />
+    <meta property="og:image" content="__IMAGE__" />
+    <meta property="og:url" content="__URL__" />
+    <meta property="og:site_name" content="متجر البيت السعيد 1981" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="__TITLE__" />
+    <meta name="twitter:description" content="__DESCRIPTION__" />
+    <meta name="twitter:image" content="__IMAGE__" />
+    <!-- __EXTRA_META__ -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
+  </head>
+  <body class="bg-[#05080D] text-[#F8FAFC] font-['Cairo',sans-serif] antialiased selection:bg-[#D4AF37] selection:text-[#05080D]">
+    <script>
+      // Automatically set the partitioned cookie for AI Studio sandboxed iframe compatibility
+      try {
+        const host = window.location.hostname;
+        document.cookie = `__SECURE-aistudio_auth_flow_may_set_cookies=true; Path=/; Secure; SameSite=None; Domain=${host}; Partitioned; Max-Age=604800;`;
+      } catch (e) {}
+
+      // Gracefully handle benign Vite HMR websocket disconnection in sandboxed environments
+      window.addEventListener('unhandledrejection', function (event) {
+        // ALWAYS LOG UNHANDLED REJECTIONS
+        console.error('[EARLY_UNHANDLED_REJECTION]', event.reason);
+
+        if (event.reason && (
+          event.reason.message?.includes('WebSocket') ||
+          event.reason.message?.includes('ws') ||
+          String(event.reason).includes('WebSocket closed without opened')
+        )) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        // ALWAYS LOG ERRORS
+        console.error('[EARLY_GLOBAL_ERROR]', event.error || event.message);
+
+        if (event.message && (
+          event.message.includes('WebSocket') ||
+          event.message.includes('[vite]')
+        )) {
+          event.preventDefault();
+        }
+      });
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

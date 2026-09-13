@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@900&amp;display=swap');
+      .fav-text {
+        font-family: 'Cairo', sans-serif;
+        font-weight: 900;
+      }
+    </style>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#070D16" />
+  <rect width="126" height="126" x="1" y="1" rx="27" fill="none" stroke="#D6A83A" stroke-width="2" stroke-opacity="0.4" />
+  
+  <!-- Roof and Window -->
+  <g transform="translate(-16, 2) scale(1.2)">
+    <path d="M 45 42 L 67 18 L 72 23 L 53 42 Z" fill="#FFFFFF" />
+    <rect x="68" y="29" width="5.5" height="5.5" rx="1" fill="#D6A83A" />
+    <rect x="75.5" y="29" width="5.5" height="5.5" rx="1" fill="#D6A83A" />
+    <rect x="68" y="36.5" width="5.5" height="5.5" rx="1" fill="#D6A83A" />
+    <rect x="75.5" y="36.5" width="5.5" height="5.5" rx="1" fill="#D6A83A" />
+    <path d="M 83 31 L 98 42 L 90 42 L 79 34 Z" fill="#FFFFFF" />
+  </g>
+
+  <!-- 1981 -->
+  <text x="64" y="96" text-anchor="middle" class="fav-text" font-size="28" fill="#F5F5F3" letter-spacing="-0.5">
+    1981
+  </text>
+</svg>

@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        firestore.exists(/databases/(default)/documents/profiles/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/profiles/$(request.auth.uid)).data.role == 'admin' ||
+        request.auth.token.email == 'atito4031@gmail.com'
+      );
+    }
+
+    // Public read for all catalog assets (products, categories, logo)
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /categories/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /brand/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

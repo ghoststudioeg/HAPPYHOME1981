@@ -1,0 +1,583 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Product category definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "slug": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "image": { "type": "string", "maxLength": 2048 },
+        "visibility": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "parentId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["name", "slug"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog product definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "description": { "type": "string", "maxLength": 5000 },
+        "features": { "type": "array" },
+        "mainImageUrl": { "type": "string", "maxLength": 2048 },
+        "additionalImages": { "type": "array" },
+        "isAvailable": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
+        "isPublished": { "type": "boolean" },
+        "stockQuantity": { "type": "number" },
+        "lowStockThreshold": { "type": "number" },
+        "stockStatus": { "type": "string", "enum": ["in_stock", "low_stock", "out_of_stock", "coming_soon"] },
+        "trackInventory": { "type": "boolean" },
+        "showExactStockToCustomer": { "type": "boolean" },
+        "whatsappClicks": { "type": "number" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "slug", "categoryId", "sku", "price"]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Global store contact information and branding",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string", "maxLength": 100 },
+        "logoUrl": { "type": "string", "maxLength": 2048 },
+        "whatsappNumber": { "type": "string", "maxLength": 30 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "facebookUrl": { "type": "string", "maxLength": 500 },
+        "instagramUrl": { "type": "string", "maxLength": 500 },
+        "address": { "type": "string", "maxLength": 300 },
+        "workingHours": { "type": "string", "maxLength": 200 },
+        "heroTitle": { "type": "string", "maxLength": 200 },
+        "heroSubtitle": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["storeName", "whatsappNumber"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile with role RBAC",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["email", "role"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Customer and admin authoritative user profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "photoURL": { "type": "string", "maxLength": 2048 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 300 },
+        "role": { "type": "string", "enum": ["admin", "customer"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "UserFavorite": {
+      "title": "UserFavorite",
+      "description": "Customer favorited product reference with cached summary",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "productImage": { "type": "string", "maxLength": 2048 },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "categoryName": { "type": "string", "maxLength": 100 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "addedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["productId", "productName", "price"]
+    },
+    "UserRecentlyViewed": {
+      "title": "UserRecentlyViewed",
+      "description": "Customer recently viewed product item with cached details",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "productImage": { "type": "string", "maxLength": 2048 },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "categoryName": { "type": "string", "maxLength": 100 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "viewedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["productId", "productName", "price", "viewedAt"]
+    },
+    "UserCartItem": {
+      "title": "UserCartItem",
+      "description": "Customer shopping cart item reference",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "quantity": { "type": "number" },
+        "addedAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["productId", "quantity"]
+    },
+    "HomepageSettings": {
+      "title": "HomepageSettings",
+      "description": "Configuration for homepage layout, new arrivals, and sections",
+      "type": "object",
+      "properties": {
+        "newArrivalsEnabled": { "type": "boolean" },
+        "newArrivalsLimit": { "type": "number" },
+        "limitedOffersEnabled": { "type": "boolean" },
+        "comingSoonEnabled": { "type": "boolean" },
+        "categoriesEnabled": { "type": "boolean" },
+        "newsTickerEnabled": { "type": "boolean" },
+        "heroBannersEnabled": { "type": "boolean" },
+        "heroSlideIntervalSeconds": { "type": "number" }
+      }
+    },
+    "HeroBanner": {
+      "title": "HeroBanner",
+      "description": "Hero section dynamic carousel banners",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "subtitle": { "type": "string", "maxLength": 500 },
+        "badgeText": { "type": "string", "maxLength": 100 },
+        "badgeType": { "type": "string", "maxLength": 50 },
+        "backgroundImageUrl": { "type": "string", "maxLength": 2048 },
+        "productImageUrl": { "type": "string", "maxLength": 2048 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productSlug": { "type": "string", "maxLength": 200 },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "ctaText": { "type": "string", "maxLength": 100 },
+        "ctaType": { "type": "string", "maxLength": 50 },
+        "ctaLink": { "type": "string", "maxLength": 2048 },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 50 },
+        "endDate": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["title"]
+    },
+    "NewsTickerItem": {
+      "title": "NewsTickerItem",
+      "description": "Sub-header rolling announcement ticker item",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "maxLength": 500 },
+        "type": { "type": "string", "maxLength": 50 },
+        "icon": { "type": "string", "maxLength": 50 },
+        "link": { "type": "string", "maxLength": 2048 },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 50 },
+        "endDate": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["text"]
+    },
+    "Promotion": {
+      "title": "Promotion",
+      "description": "Centralized promotion and Flash Sale campaign",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "productIds": { "type": "array" },
+        "categoryIds": { "type": "array" },
+        "discountType": { "type": "string", "enum": ["fixed_price", "percentage", "fixed_discount"] },
+        "promotionPrice": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 50 },
+        "endDate": { "type": "string", "maxLength": 50 },
+        "isActive": { "type": "boolean" },
+        "priority": { "type": "number" },
+        "isFlashSale": { "type": "boolean" },
+        "badgeText": { "type": "string", "maxLength": 100 },
+        "bannerId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name", "startDate", "endDate", "discountType", "isActive", "priority"]
+    },
+    "LimitedOffer": {
+      "title": "LimitedOffer",
+      "description": "Flash sale and limited time discount offer",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "productSlug": { "type": "string", "maxLength": 200 },
+        "productImage": { "type": "string", "maxLength": 2048 },
+        "productDescription": { "type": "string", "maxLength": 5000 },
+        "originalPrice": { "type": "number" },
+        "offerPrice": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "startTime": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "endTime": { "type": "string", "maxLength": 20 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["productId", "originalPrice", "offerPrice", "startDate", "endDate"]
+    },
+    "ComingSoonItem": {
+      "title": "ComingSoonItem",
+      "description": "Teaser item for upcoming arrivals",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "image": { "type": "string", "maxLength": 2048 },
+        "shortDescription": { "type": "string", "maxLength": 1000 },
+        "expectedDate": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "image"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer retail order details",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "customerAddress": { "type": "string", "maxLength": 300 },
+        "customerNotes": { "type": "string", "maxLength": 1000 },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "processing", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["userId", "customerName", "customerPhone", "customerAddress", "items", "totalAmount", "status"]
+    },
+    "Address": {
+      "title": "Address",
+      "description": "Customer shipping address",
+      "type": "object",
+      "properties": {
+        "addressId": { "type": "string", "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 100 },
+        "recipientName": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "governorate": { "type": "string", "maxLength": 100 },
+        "area": { "type": "string", "maxLength": 100 },
+        "street": { "type": "string", "maxLength": 200 },
+        "building": { "type": "string", "maxLength": 50 },
+        "apartment": { "type": "string", "maxLength": 50 },
+        "floor": { "type": "string", "maxLength": 50 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["addressId", "label", "recipientName", "phone", "governorate", "area", "street", "building"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer product review and rating definition",
+      "type": "object",
+      "properties": {
+        "reviewId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "customerPhotoURL": { "type": "string", "maxLength": 2048 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 2000 },
+        "verifiedPurchase": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "hidden"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["reviewId", "productId", "customerUid", "customerName", "rating", "comment", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification document",
+      "type": "object",
+      "properties": {
+        "notificationId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["order_created", "order_status_changed", "product_back_in_stock", "favorite_product_discount", "coupon", "admin_announcement"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "relatedId": { "type": "string", "maxLength": 128 },
+        "relatedType": { "type": "string", "enum": ["order", "product", "promotion", "system"] }
+      },
+      "required": ["notificationId", "type", "title", "message", "read", "createdAt"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Promotional discount coupon definition",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 50 },
+        "type": { "type": "string", "enum": ["percentage", "fixed_amount"] },
+        "value": { "type": "number" },
+        "minimumOrder": { "type": "number" },
+        "maximumDiscount": { "type": "number" },
+        "usageLimit": { "type": "number" },
+        "usedCount": { "type": "number" },
+        "perCustomerLimit": { "type": "number" },
+        "startAt": { "type": "string", "maxLength": 50 },
+        "expiresAt": { "type": "string", "maxLength": 50 },
+        "active": { "type": "boolean" },
+        "applicableProductIds": { "type": "array" },
+        "applicableCategoryIds": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["code", "type", "value", "active"]
+    },
+    "AnalyticsEvent": {
+      "title": "AnalyticsEvent",
+      "description": "Store interaction and conversion events",
+      "type": "object",
+      "properties": {
+        "eventType": { "type": "string", "enum": ["product_view", "category_view", "search", "favorite_added", "favorite_removed", "cart_added", "cart_removed", "checkout_started", "order_created", "order_delivered", "order_cancelled", "whatsapp_clicked", "coupon_used"] },
+        "productId": { "type": "string", "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "metadata": { "type": "object" }
+      },
+      "required": ["eventType", "timestamp"]
+    },
+    "AdminStoreNotification": {
+      "title": "AdminStoreNotification",
+      "description": "Centralized admin store events and notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "eventType": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "relatedId": { "type": "string", "maxLength": 128 },
+        "relatedType": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "read": { "type": "boolean" },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "whatsappStatus": { "type": "string" },
+        "whatsappError": { "type": "string" },
+        "payload": { "type": "object" }
+      },
+      "required": ["id", "eventType", "title", "message", "createdAt"]
+    },
+    "InventoryLog": {
+      "title": "InventoryLog",
+      "description": "Immutable audit record for every stock adjustment, order deduction, or restock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "productSku": { "type": "string", "maxLength": 50 },
+        "change": { "type": "number" },
+        "previousStock": { "type": "number" },
+        "newStock": { "type": "number" },
+        "reason": { "type": "string", "enum": ["order_created", "order_cancelled", "manual_adjustment", "restock", "damage_loss", "return_restock", "initial_stock", "inventory_audit"] },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "note": { "type": "string", "maxLength": 500 },
+        "adjustedBy": { "type": "string", "maxLength": 150 },
+        "timestamp": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "productId", "productName", "change", "previousStock", "newStock", "reason", "timestamp"]
+    },
+    "Backup": {
+      "title": "Backup",
+      "description": "System data backup record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["success", "failed"] },
+        "recordCount": { "type": "number" },
+        "counts": { "type": "object" },
+        "referencedStorageObjects": { "type": "array" },
+        "automated": { "type": "boolean" },
+        "error": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "timestamp", "status"]
+    },
+    "StagingStatus": {
+      "title": "StagingStatus",
+      "description": "Temporary staging state for restoration verification",
+      "type": "object",
+      "properties": {
+        "staged": { "type": "boolean" },
+        "backupId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "backupTimestamp": { "type": "string", "maxLength": 50 },
+        "counts": { "type": "object" },
+        "referencedStorageObjects": { "type": "array" },
+        "status": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["staged"]
+    },
+    "InstallmentProvider": {
+      "title": "InstallmentProvider",
+      "description": "Financing and installment provider configuration",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "slug": { "type": "string", "maxLength": 100 },
+        "logoUrl": { "type": "string", "maxLength": 2048 },
+        "enabled": { "type": "boolean" },
+        "calculationMode": { "type": "string", "enum": ["manual", "api"] },
+        "integrationMode": { "type": "string", "enum": ["manual", "api"] },
+        "description": { "type": "string", "maxLength": 1000 },
+        "displayOrder": { "type": "number" },
+        "isDirectStore": { "type": "boolean" },
+        "directStoreDisclaimer": { "type": "string", "maxLength": 1000 },
+        "integrationStatus": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name", "slug"]
+    },
+    "InstallmentPlan": {
+      "title": "InstallmentPlan",
+      "description": "Installment payment duration and fee rules",
+      "type": "object",
+      "properties": {
+        "providerId": { "type": "string", "maxLength": 128 },
+        "months": { "type": "number" },
+        "calculationType": { "type": "string", "enum": ["no_extra_cost", "percentage_fee", "fixed_fee"] },
+        "percentage": { "type": "number" },
+        "fixedFee": { "type": "number" },
+        "downPaymentType": { "type": "string", "enum": ["none", "percentage", "fixed"] },
+        "downPaymentValue": { "type": "number" },
+        "minProductPrice": { "type": "number" },
+        "maxProductPrice": { "type": "number" },
+        "enabled": { "type": "boolean" },
+        "displayOrder": { "type": "number" },
+        "disclaimer": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["providerId", "months", "calculationType"]
+    }
+  },
+  "firestore": {
+    "/inventory_logs/{logId}": {
+      "schema": "InventoryLog",
+      "description": "Historical audit logs of stock movements"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Collection of catalog categories"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of retail catalog products"
+    },
+    "/products/{productId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Real product customer reviews and ratings"
+    },
+    "/storeSettings/{settingId}": {
+      "schema": "StoreSettings",
+      "description": "Store configuration and contact settings"
+    },
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "User profile data for access control"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Authoritative user profile documents for customers and admins"
+    },
+    "/users/{userId}/addresses/{addressId}": {
+      "schema": "Address",
+      "description": "Customer saved shipping addresses"
+    },
+    "/users/{userId}/favorites/{productId}": {
+      "schema": "UserFavorite",
+      "description": "Customer favorited products subcollection"
+    },
+    "/users/{userId}/recentlyViewed/{productId}": {
+      "schema": "UserRecentlyViewed",
+      "description": "Customer recently viewed products subcollection"
+    },
+    "/users/{userId}/cart/{productId}": {
+      "schema": "UserCartItem",
+      "description": "Customer shopping cart subcollection"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications subcollection"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders collection"
+    },
+    "/homepageSettings/{settingId}": {
+      "schema": "HomepageSettings",
+      "description": "Homepage layout toggles and limits"
+    },
+    "/homepageBanners/{bannerId}": {
+      "schema": "HeroBanner",
+      "description": "Hero dynamic carousel banners"
+    },
+    "/newsTicker/{tickerId}": {
+      "schema": "NewsTickerItem",
+      "description": "Homepage announcement ticker items"
+    },
+    "/limitedOffers/{offerId}": {
+      "schema": "LimitedOffer",
+      "description": "Limited time flash deals and offers"
+    },
+    "/promotions/{promotionId}": {
+      "schema": "Promotion",
+      "description": "Centralized promotions and flash sales collection"
+    },
+    "/comingSoon/{itemId}": {
+      "schema": "ComingSoonItem",
+      "description": "Upcoming teaser items"
+    },
+    "/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Promotional discount coupons"
+    },
+    "/analytics_events/{eventId}": {
+      "schema": "AnalyticsEvent",
+      "description": "Collection of raw analytics events"
+    },
+    "/admin_notifications/{notifId}": {
+      "schema": "AdminStoreNotification",
+      "description": "Centralized admin store events and notifications"
+    },
+    "/backups/{backupId}": {
+      "schema": "Backup",
+      "description": "Collection of system data backups"
+    },
+    "/backups/staging_status": {
+      "schema": "StagingStatus",
+      "description": "Singleton document for tracking restoration staging"
+    },
+    "/installmentProviders/{providerId}": {
+      "schema": "InstallmentProvider",
+      "description": "Financing and installment provider configurations"
+    },
+    "/installmentPlans/{planId}": {
+      "schema": "InstallmentPlan",
+      "description": "Financing installment plans and duration rules"
+    }
+  }
+}

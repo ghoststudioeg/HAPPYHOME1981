@@ -1,0 +1,392 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: #05080D;
+    --surface: #07111C;
+    --surface-secondary: #0A111A;
+    --surface-elevated: #0F172A;
+    --card: rgba(10, 17, 26, 0.7);
+    --card-hover: rgba(15, 25, 38, 0.85);
+    --foreground: #F8FAFC;
+    --foreground-secondary: #CBD5E1;
+    --muted: #64748B;
+    --text-primary: #F5F7FA;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.15);
+    --border-hover: rgba(212, 175, 55, 0.3);
+    --shadow: rgba(0, 0, 0, 0.5);
+    --overlay: rgba(0, 0, 0, 0.8);
+    --input: rgba(255, 255, 255, 0.04);
+    --input-foreground: #F8FAFC;
+    --accent: #D6A83A;
+    --accent-light: #E0B84A;
+    --accent-dark: #B88A24;
+    --accent-bg: rgba(212, 175, 55, 0.12);
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --mobile-bottom-nav-height: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  @media (min-width: 1024px) {
+    :root {
+      --mobile-bottom-nav-height: 0px !important;
+    }
+  }
+
+  html.light, [data-theme="light"] {
+    color-scheme: light;
+    --background: #FFFFFF;
+    --surface: #FAFAFA;
+    --surface-secondary: #F1F5F9;
+    --surface-elevated: #E2E8F0;
+    --card: #FFFFFF;
+    --card-hover: #F8FAFC;
+    --foreground: #0F172A;
+    --foreground-secondary: #334155;
+    --muted: #64748B;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --border-strong: #CBD5E1;
+    --border-hover: rgba(212, 175, 55, 0.5);
+    --shadow: rgba(15, 23, 42, 0.08);
+    --overlay: rgba(15, 23, 42, 0.5);
+    --input: #F1F5F9;
+    --input-foreground: #0F172A;
+    --accent: #B88A24;
+    --accent-light: #D6A83A;
+    --accent-dark: #8A6510;
+    --accent-bg: rgba(212, 175, 55, 0.08);
+    --success: #059669;
+    --warning: #D97706;
+    --danger: #DC2626;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--text-primary);
+    font-family: 'Cairo', 'Tajawal', sans-serif;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    background-image: 
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212, 175, 55, 0.04), transparent),
+      radial-gradient(ellipse 60% 40% at 90% 80%, rgba(14, 165, 233, 0.02), transparent);
+    background-attachment: fixed;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  /* Custom scrollbar for dark luxury glass UI - Desktop Only */
+  @media (min-width: 1024px) {
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #05080D;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #152233;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #223752;
+    }
+  }
+
+  /* Hide scrollbar visually on mobile viewports to prevent desktop-like scroll containers, while keeping scrolling intact */
+  @media (max-width: 1023px) {
+    html, body, #root, .min-h-screen {
+      scrollbar-width: none !important; /* Firefox */
+      -ms-overflow-style: none !important; /* IE/Edge */
+    }
+    html::-webkit-scrollbar, 
+    body::-webkit-scrollbar,
+    #root::-webkit-scrollbar,
+    .min-h-screen::-webkit-scrollbar {
+      display: none !important; /* Chrome, Safari, Opera */
+      width: 0 !important;
+      height: 0 !important;
+    }
+  }
+}
+
+/* ==========================================
+   LIGHT MODE COMPLETE THEME SYSTEM (html.light)
+   ========================================== */
+html.light body {
+  background-color: #FAFAFA !important;
+  color: #0F172A !important;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212, 175, 55, 0.06), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 80%, rgba(14, 165, 233, 0.03), transparent) !important;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #FAFAFA !important;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1 !important;
+  border-radius: 9999px;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8 !important;
+}
+
+/* Global Placeholder Theme Support */
+::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+html.light ::placeholder {
+  color: #94A3B8 !important;
+}
+
+/* Glassmorphism System Adaptation for Light Theme */
+html.light .glass-panel {
+  background-color: var(--card) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 4px 20px -4px var(--shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+html.light .glass-panel-elevated {
+  background-color: var(--surface) !important;
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--border-strong) !important;
+  box-shadow: 0 10px 30px -8px var(--shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+html.light .glass-card-interactive {
+  background-color: var(--card) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 4px 16px -4px var(--shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+html.light .glass-nav {
+  background-color: var(--background) !important;
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+html.light .glass-input {
+  background-color: var(--input) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text-primary) !important;
+}
+
+html.light .glass-pill {
+  background-color: var(--surface-secondary) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+}
+
+html.light .glass-pill-gold {
+  background-color: var(--accent-bg) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 175, 55, 0.4) !important;
+  color: var(--accent) !important;
+}
+
+/* ==========================================
+   LEGACY ADAPTERS (To be removed after full refactor)
+   ========================================== */
+html.light {
+  .bg-\[\#05080D\], .bg-\[\#07111C\], .bg-\[\#0A111A\], .bg-\[\#070D16\], .bg-slate-950, .bg-black {
+    background-color: var(--background) !important;
+  }
+
+  .bg-\[\#0D1726\], .bg-\[\#101B2B\], .bg-\[\#121d2d\], .bg-\[\#152233\], .bg-slate-900 {
+    background-color: var(--surface) !important;
+  }
+
+  .text-white, .text-\[\#F8FAFC\], .text-slate-100 {
+    color: var(--text-primary) !important;
+  }
+
+  .border-white\/10, .border-white\/5, .border-white\/\[0\.08\], .border-slate-800 {
+    border-color: var(--border) !important;
+  }
+}
+
+/* Dark Theme explicit helpers */
+.glass-panel {
+  background-color: rgba(10, 17, 26, 0.65);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+.glass-panel-elevated {
+  background-color: rgba(7, 17, 28, 0.82);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+.glass-card-interactive {
+  background-color: rgba(10, 17, 26, 0.6);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.45);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-interactive:hover {
+  background-color: rgba(13, 23, 36, 0.75);
+  border-color: rgba(212, 175, 55, 0.45);
+  box-shadow: 0 18px 45px -10px rgba(0, 0, 0, 0.6), 0 0 20px -4px rgba(212, 175, 55, 0.15);
+  transform: translateY(-3px);
+}
+
+.glass-nav {
+  background-color: rgba(5, 8, 13, 0.82);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-input {
+  background-color: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #F5F7FA;
+  transition: all 0.25s ease;
+}
+
+.glass-input:focus {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(212, 175, 55, 0.6);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.18);
+  outline: none;
+}
+
+.glass-pill {
+  background-color: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #F5F7FA;
+}
+
+.glass-pill-gold {
+  background-color: rgba(212, 175, 55, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: #E0B84A;
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #FFF0B8 0%, #D4AF37 50%, #B88A24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.liquid-reflection {
+  position: relative;
+}
+
+.liquid-reflection::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  pointer-events: none;
+}
+
+/* Print Stylesheet for Clean A4 Invoices */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  html, body, #root {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    direction: rtl !important;
+  }
+
+  header, nav, footer, aside, .no-print, button, [role="dialog"] > div:first-child, .ambient-bg {
+    display: none !important;
+  }
+
+  div, main, section, article {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    transform: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+  }
+
+  #printable-invoice-area, .printable-invoice {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+  }
+
+  #printable-invoice-area * {
+    visibility: visible !important;
+  }
+
+  tr, .page-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+}

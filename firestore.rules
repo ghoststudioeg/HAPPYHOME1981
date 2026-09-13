@@ -1,0 +1,285 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.uid == 'EJUkv883PFgWzQI4qn4itmTeWl22' ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == 'atito4031@gmail.com' ||
+          request.auth.token.email == 'musicusabest@gmail.com' ||
+          request.auth.token.email == 'Atito4031@gmail.com' ||
+          request.auth.token.email == 'Musicusabest@gmail.com'
+        )) ||
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    // Categories: public read, admin write with schema validation
+    match /categories/{categoryId} {
+      allow read: if resource == null || resource.data.visibility == true || isAdmin();
+      allow create: if isAdmin() && isValidId(categoryId)
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 100
+        && request.resource.data.slug is string && request.resource.data.slug.size() > 0 && request.resource.data.slug.size() <= 100;
+      allow update: if isAdmin() && isValidId(categoryId)
+        && (!('name' in request.resource.data) || (request.resource.data.name is string && request.resource.data.name.size() <= 100))
+        && (!('slug' in request.resource.data) || (request.resource.data.slug is string && request.resource.data.slug.size() <= 100));
+      allow delete: if isAdmin() && isValidId(categoryId);
+    }
+
+    // Products: public read published products (or admin all), admin write with schema validation
+    match /products/{productId} {
+      allow read: if resource == null || resource.data.isPublished == true || isAdmin();
+      allow create: if isAdmin() && isValidId(productId)
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+        && request.resource.data.price is number && request.resource.data.price >= 0
+        && request.resource.data.categoryId is string && request.resource.data.categoryId.size() <= 128;
+      allow update: if isValidId(productId) && (
+        (isAdmin()
+          && (!('price' in request.resource.data) || (request.resource.data.price is number && request.resource.data.price >= 0))
+          && (!('name' in request.resource.data) || (request.resource.data.name is string && request.resource.data.name.size() <= 200)))
+        ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['whatsappClicks'])
+          && request.resource.data.whatsappClicks is number
+          && request.resource.data.whatsappClicks >= resource.data.whatsappClicks)
+        ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['averageRating', 'reviewCount'])
+          && (request.resource.data.averageRating is number || !('averageRating' in request.resource.data))
+          && (request.resource.data.reviewCount is number || !('reviewCount' in request.resource.data)))
+        ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity', 'updatedAt'])
+          && request.resource.data.stockQuantity is number
+          && request.resource.data.stockQuantity >= 0
+          && request.resource.data.stockQuantity <= resource.data.stockQuantity)
+      );
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // Reviews Collection Group & Subcollections (products/{productId}/reviews/{reviewId})
+    match /{path=**}/reviews/{reviewId} {
+      allow read: if (resource == null || resource.data.status == 'approved')
+        || isAdmin()
+        || (isSignedIn() && resource.data.customerUid == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.auth.uid == reviewId
+        && request.resource.data.customerUid == request.auth.uid
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && request.resource.data.status == 'pending'
+        && (!('comment' in request.resource.data) || (request.resource.data.comment is string && request.resource.data.comment.size() <= 2000));
+      allow update: if isAdmin() || (
+        isSignedIn()
+        && resource != null
+        && resource.data.customerUid == request.auth.uid
+        && request.auth.uid == reviewId
+        && request.resource.data.customerUid == request.auth.uid
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && request.resource.data.status == 'pending'
+        && (!('comment' in request.resource.data) || (request.resource.data.comment is string && request.resource.data.comment.size() <= 2000))
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource != null && resource.data.customerUid == request.auth.uid);
+    }
+
+    // Cart Collection Group (Admin-only read access for global active carts tracking)
+    match /{path=**}/cart/{productId} {
+      allow read: if isAdmin();
+    }
+
+
+    // Store Settings: public read, admin write with schema validation
+    match /storeSettings/{settingId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidId(settingId)
+        && request.resource.data.storeName is string && request.resource.data.storeName.size() <= 100
+        && request.resource.data.whatsappNumber is string && request.resource.data.whatsappNumber.size() <= 30;
+      allow delete: if false;
+    }
+
+    // Profiles: admin write, user can read own profile
+    // Users: Unified Customer & Admin profiles
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(userId);
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.email is string && request.resource.data.email.size() <= 150
+        && (request.resource.data.role == 'customer' || (isAdmin() && request.resource.data.role == 'admin'))
+        && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100))
+        && (!('phone' in request.resource.data) || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+        && (!('address' in request.resource.data) || (request.resource.data.address is string && request.resource.data.address.size() <= 300))
+        && (!('photoURL' in request.resource.data) || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048));
+      allow update: if isSignedIn() && isValidId(userId) && (
+        isAdmin() ||
+        (request.auth.uid == userId
+          && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)
+          && (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100))
+          && (!('phone' in request.resource.data) || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+          && (!('address' in request.resource.data) || (request.resource.data.address is string && request.resource.data.address.size() <= 300))
+          && (!('photoURL' in request.resource.data) || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048)))
+      );
+      allow delete: if isAdmin() && isValidId(userId);
+
+      // Customer personal favorites subcollection
+      match /favorites/{productId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Customer personal recently viewed subcollection
+      match /recentlyViewed/{productId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Customer personal addresses subcollection
+      match /addresses/{addressId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Customer personal cart subcollection
+      match /cart/{productId} {
+        allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
+
+      // Customer notifications subcollection
+      match /notifications/{notificationId} {
+        allow read, update, delete: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // Homepage Settings: public read, admin write
+    match /homepageSettings/{settingId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidId(settingId);
+      allow delete: if false;
+    }
+
+    // Homepage Hero Banners: public read, admin write
+    match /homepageBanners/{bannerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(bannerId);
+    }
+
+    // News Ticker: public read, admin write
+    match /newsTicker/{tickerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(tickerId);
+    }
+
+    // Limited Offers: public read, admin write
+    match /limitedOffers/{offerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(offerId);
+    }
+
+    // Centralized Promotions & Flash Sales: public read, admin write
+    match /promotions/{promotionId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(promotionId);
+    }
+
+    // Coming Soon Items: public read, admin write
+    match /comingSoon/{itemId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(itemId);
+    }
+
+    // Coupons Collection: admin all, public get for validation, safe usage increment
+    match /coupons/{couponId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin() && isValidId(couponId);
+      allow update: if isAdmin() || (
+        isValidId(couponId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'updatedAt'])
+        && request.resource.data.usedCount is number
+        && request.resource.data.usedCount >= resource.data.usedCount
+      );
+    }
+
+    // Analytics Events: public create (with validation), admin list/read
+    match /analytics_events/{eventId} {
+      allow create: if isValidId(eventId)
+        && request.resource.data.eventType is string
+        && (!('userUid' in request.resource.data) || request.resource.data.userUid is string);
+      allow read, list: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Orders Collection: creation is secure (server-only via admin sdk), read is restricted to owner or admin, update/delete is admin-only
+    match /orders/{orderId} {
+      allow create: if isValidId(orderId) && (
+        isAdmin() ||
+        (request.resource.data.id == orderId
+          && request.resource.data.invoiceId is string
+          && request.resource.data.invoiceStatus == 'issued'
+          && request.resource.data.customerUid is string
+          && request.resource.data.total is number)
+      );
+      allow read: if isAdmin() || (isSignedIn() && resource != null && (resource.data.customerUid == request.auth.uid || resource.data.userId == request.auth.uid));
+      allow update, delete: if isAdmin();
+    }
+
+    // Counters Collection: used for sequential invoice numbering
+    match /counters/{counterId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (
+        isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seq', 'updatedAt'])
+        && request.resource.data.seq == resource.data.seq + 1
+      );
+    }
+
+    // Centralized Admin Notifications Collection
+    match /admin_notifications/{notifId} {
+      allow read, update, delete: if isAdmin();
+      allow create: if isAdmin() || (
+        (request.resource.data.eventType == 'NEW_ORDER' && exists(/databases/$(database)/documents/orders/$(request.resource.data.payload.orderId))) ||
+        (request.resource.data.eventType == 'NEW_CUSTOMER' && isSignedIn() && request.resource.data.payload.customerUid == request.auth.uid) ||
+        (request.resource.data.eventType == 'COUPON_USED' && exists(/databases/$(database)/documents/orders/$(request.resource.data.payload.orderId)))
+      );
+    }
+
+    // Inventory Audit Logs Collection
+    match /inventory_logs/{logId} {
+      allow read, list: if isAdmin();
+      allow create: if isValidId(logId) && (
+        isAdmin() ||
+        (request.resource.data.productId is string
+          && request.resource.data.change is number
+          && request.resource.data.newStock is number
+          && request.resource.data.reason == 'order_created')
+      );
+      allow update, delete: if false;
+    }
+
+    // Admin Audit Logs Collection (Append-only, strictly Admin read/create, no update/delete)
+    match /audit_logs/{eventId} {
+      allow read, list: if isAdmin();
+      allow create: if isAdmin() && isValidId(eventId);
+      allow update, delete: if false;
+    }
+
+    // Financing Providers: public read, admin write
+    match /installmentProviders/{providerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Installment Plans: public read, admin write
+    match /installmentPlans/{planId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}

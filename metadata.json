@@ -1,0 +1,6 @@
+{
+  "name": "البيت السعيد 1981",
+  "description": "البيت السعيد 1981 — قسط كل اللي نفسك فيه. منتجات للبيت والمدرسة والسفر والإلكترونيات والهدايا بجودة مضمونة وأسعار منافسة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
