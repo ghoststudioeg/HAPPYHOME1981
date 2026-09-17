@@ -154,6 +154,7 @@ export function buildOrderTextForWhatsApp(order: Order, storeSettings?: StoreSet
     ``,
     `💵 *الإجمالي الفرعي:* ${order.subtotal.toLocaleString('ar-EG')} ج.م`,
     order.discount > 0 ? `🎟️ *الخصم:* -${order.discount.toLocaleString('ar-EG')} ج.م` : null,
+    order.selectedInsurance ? `🛡️ *تأمين فوري (${order.selectedInsurance.name}):* ${order.selectedInsurance.isFree ? 'مشمول مجانًا' : `${order.selectedInsurance.insurancePrice.toLocaleString('ar-EG')} ج.م`}` : null,
     `🚚 *مصاريف الشحن:* ${order.shippingCost > 0 ? `${order.shippingCost.toLocaleString('ar-EG')} ج.م` : 'مجاني'}`,
     `💰 *الإجمالي النهائي:* *${order.total.toLocaleString('ar-EG')} ج.م*`,
     ``,

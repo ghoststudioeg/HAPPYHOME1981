@@ -391,6 +391,17 @@ export function InvoicePrintPage({ orderId, navigate }: InvoicePrintPageProps) {
                 </div>
               )}
 
+              {order.selectedInsurance && (
+                <div className="flex justify-between items-center text-emerald-800 font-bold pb-1.5 border-b border-slate-200">
+                  <span>
+                    🛡️ تأمين فوري ({order.selectedInsurance.name}):
+                  </span>
+                  <span className="font-mono text-sm">
+                    {order.selectedInsurance.isFree ? 'مشمول مجانًا' : `+ ${order.selectedInsurance.insurancePrice.toLocaleString('ar-EG')} ج.م`}
+                  </span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center text-slate-700 pb-1.5 border-b border-slate-200">
                 <span className="font-bold">مصاريف الشحن والتوصيل:</span>
                 <span className="font-mono font-bold text-sm">

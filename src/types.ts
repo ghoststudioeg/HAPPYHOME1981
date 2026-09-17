@@ -482,6 +482,7 @@ export interface Order {
   subtotal: number;
   discount: number;
   shippingCost: number;
+  selectedInsurance?: import('./types/insurance').SelectedInsuranceSnapshot;
   total: number;
   couponCode?: string;
   paymentMethod: string;
@@ -675,5 +676,7 @@ export interface AuditLogFilters {
   startDate?: string;
   endDate?: string;
 }
+
+export * from './types/insurance';
 
 

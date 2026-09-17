@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdmin, verifyFirebaseUser, sanitizeForFirestoreServer } from './src/lib/firebaseAdmin';
+import { DEFAULT_INSURANCE_POLICIES } from './src/lib/insurance/insuranceEngine';
 
 dotenv.config();
 
@@ -398,11 +399,11 @@ app.post('/api/storage/check-references', authenticate, async (req: any, res: an
     const collectionsToCheck = [
       'products',
       'categories',
-      'settings',
-      'homepage_banners',
-      'limited_offers',
-      'coming_soon',
-      'news_ticker',
+      'storeSettings',
+      'homepageBanners',
+      'limitedOffers',
+      'comingSoon',
+      'newsTicker',
       'users'
     ];
 
@@ -412,8 +413,8 @@ app.post('/api/storage/check-references', authenticate, async (req: any, res: an
     for (const colName of collectionsToCheck) {
       if (isReferenced) break;
 
-      if (colName === 'settings') {
-        const docRef = db.collection('settings').doc('main');
+      if (colName === 'storeSettings') {
+        const docRef = db.collection('storeSettings').doc('main');
         const snap = await docRef.get();
         if (snap.exists) {
           const data = snap.data();
@@ -436,10 +437,10 @@ app.post('/api/storage/check-references', authenticate, async (req: any, res: an
       // For this app, we'll check the primary image fields.
       const fieldsToCheck = colName === 'products' ? ['mainImageUrl'] : 
                             colName === 'categories' ? ['image'] : 
-                            colName === 'homepage_banners' ? ['desktopImageUrl', 'mobileImageUrl'] :
-                            colName === 'limited_offers' ? ['productImage'] :
-                            colName === 'coming_soon' ? ['image'] :
-                            colName === 'news_ticker' ? ['icon'] : [];
+                            colName === 'homepageBanners' ? ['desktopImageUrl', 'mobileImageUrl'] :
+                            colName === 'limitedOffers' ? ['productImage'] :
+                            colName === 'comingSoon' ? ['image'] :
+                            colName === 'newsTicker' ? ['icon'] : [];
 
       for (const field of fieldsToCheck) {
         if (isReferenced) break;
@@ -590,7 +591,7 @@ app.post('/api/notifications/whatsapp', authenticate, async (req: any, res: any)
 
 // 5. Checkout Endpoint (Secure Server-Side Order Processing)
 app.post('/api/orders/checkout', authenticateOptional, async (req: any, res: any) => {
-  const { items, couponCode, shippingAddress, customerName, customerPhone, customerEmail, customerNotes, paymentMethod } = req.body;
+  const { items, couponCode, shippingAddress, customerName, customerPhone, customerEmail, customerNotes, paymentMethod, selectedInsurance } = req.body;
   const user = (req as any).user;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -669,7 +670,10 @@ app.post('/api/orders/checkout', authenticateOptional, async (req: any, res: any
     }
 
     const shippingCost = subtotal >= 3000 ? 0 : 50;
-    const total = Math.max(0, subtotal - discount + shippingCost);
+    const insuranceAmount = (selectedInsurance && !selectedInsurance.isFree && typeof selectedInsurance.insurancePrice === 'number')
+      ? Math.max(0, selectedInsurance.insurancePrice)
+      : 0;
+    const total = Math.max(0, subtotal - discount + shippingCost + insuranceAmount);
 
     // 3. Transactional Stock Deduction & Order Creation
     const orderId = clientDb.collection('orders').doc().id;
@@ -727,6 +731,7 @@ app.post('/api/orders/checkout', authenticateOptional, async (req: any, res: any
         discount,
         shippingCost,
         total,
+        ...(selectedInsurance ? { selectedInsurance } : {}),
         couponCode: validatedCouponCode,
         orderStatus: 'new',
         paymentMethod: paymentMethod || 'cash_on_delivery',
@@ -754,6 +759,408 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   }
   next(err);
 });
+
+
+// ==========================================
+// PUBLIC BULLETPROOF ROUTES (SEO & Health)
+// ==========================================
+app.get('/health', (req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+app.get('/googlec2b5e575b2168828.html', (req, res) => {
+  res.set('Content-Type', 'text/html');
+  res.send('google-site-verification: googlec2b5e575b2168828.html');
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.set('Content-Type', 'text/plain');
+  res.send(`User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://${req.get('host') || 'happyhome1981.onrender.com'}/sitemap.xml`);
+});
+
+app.get('/sitemap.xml', async (req, res) => {
+  const host = req.get('host') || 'happyhome1981.onrender.com';
+  const protocol = req.protocol || 'https';
+  const baseUrl = `${protocol}://${host}`;
+  
+  let urls = [
+    { loc: baseUrl, priority: '1.0' },
+    { loc: `${baseUrl}/products`, priority: '0.9' },
+    { loc: `${baseUrl}/categories`, priority: '0.8' },
+    { loc: `${baseUrl}/about`, priority: '0.5' },
+    { loc: `${baseUrl}/contact`, priority: '0.5' }
+  ];
+
+  try {
+    const [products, categories] = await Promise.all([
+      getServerProducts(),
+      getServerCategories()
+    ]);
+
+    products.forEach(p => {
+      const slug = getProductCanonicalSlugServer(p);
+      if (slug) urls.push({ loc: `${baseUrl}/product/${slug}`, priority: '0.7' });
+    });
+
+    categories.forEach(c => {
+      const slug = getCategoryCanonicalSlugServer(c);
+      if (slug) urls.push({ loc: `${baseUrl}/category/${slug}`, priority: '0.6' });
+    });
+  } catch (err) {
+    console.error('[Sitemap] Failed to fetch dynamic URLs:', err);
+  }
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>
+    <priority>${u.priority}</priority>
+    <changefreq>daily</changefreq>
+  </url>`).join('\n')}
+</urlset>`;
+
+  res.set('Content-Type', 'application/xml');
+  res.send(xml);
+});
+
+// ==========================================
+const CACHE_TTL_GENERAL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_PRODUCTS = 15 * 60 * 1000; // 15 minutes
+const CACHE_TTL_SETTINGS = 30 * 60 * 1000; // 30 minutes
+
+// Global Firestore Cooldown state
+let firebaseCooldownUntil = 0;
+const COOLDOWN_DURATION = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+  lastKnownGood: any;
+  hasValidLkg: boolean;
+}
+
+const memoryCache: Record<string, CacheEntry> = {
+  products: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  categories: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  settings: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  banners: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  offers: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  comingSoon: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false },
+  insurancePolicies: { data: null, timestamp: 0, lastKnownGood: null, hasValidLkg: false }
+};
+
+// Request Deduplication
+const pendingRequests = new Map<string, Promise<any>>();
+
+interface CacheResult {
+  success: boolean;
+  data: any;
+  fromCache?: boolean;
+  fromLkg?: boolean;
+  error?: string;
+}
+
+async function fetchWithCache(key: string, ttl: number, collectionName: string): Promise<CacheResult> {
+  const now = Date.now();
+  const entry = memoryCache[key];
+  const inCooldown = now < firebaseCooldownUntil;
+
+  // 1. Return fresh in-memory cache if valid
+  if (entry.data && (now - entry.timestamp < ttl)) {
+    return { success: true, data: entry.data, fromCache: true };
+  }
+
+  // 2. Return Last-Known-Good if in cooldown and LKG is genuinely populated
+  if (inCooldown && entry.hasValidLkg && entry.lastKnownGood !== null) {
+    console.warn(`[Cache] Firestore in cooldown. Serving genuine LKG for ${key}`);
+    return { success: true, data: entry.lastKnownGood, fromLkg: true };
+  }
+
+  // 3. Deduplicate concurrent requests
+  if (pendingRequests.has(key)) {
+    return pendingRequests.get(key);
+  }
+
+  const fetchPromise = (async (): Promise<CacheResult> => {
+    try {
+      console.log(`[Cache] Refreshing ${collectionName} from Firestore (Admin SDK)...`);
+      const { db: adminDb } = getFirebaseAdmin();
+      let queryRef: any = adminDb.collection(collectionName);
+      if (collectionName === 'products') {
+        queryRef = queryRef.where('isPublished', '==', true);
+      } else if (collectionName === 'categories') {
+        queryRef = queryRef.where('visibility', '==', true);
+      } else if (collectionName === 'insurancePolicies') {
+        queryRef = queryRef.where('active', '==', true);
+      }
+      
+      const snap = await queryRef.get();
+      const list: any[] = [];
+      snap.forEach((d: any) => {
+        list.push({ id: d.id, ...(d.data() || {}) });
+      });
+
+      // If insurancePolicies is completely empty in Firestore, seed initial default policies safely
+      if (collectionName === 'insurancePolicies' && list.length === 0) {
+        const anySnap = await adminDb.collection('insurancePolicies').limit(1).get();
+        if (anySnap.empty) {
+          console.log('[Cache] Seeding initial default insurance policies into Firestore...');
+          const batch = adminDb.batch();
+          for (const defaultPolicy of DEFAULT_INSURANCE_POLICIES) {
+            const docRef = adminDb.collection('insurancePolicies').doc(defaultPolicy.id);
+            batch.set(docRef, sanitizeForFirestoreServer({
+              ...defaultPolicy,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }));
+          }
+          await batch.commit();
+
+          const seededSnap = await adminDb.collection('insurancePolicies').where('active', '==', true).get();
+          seededSnap.forEach((d: any) => {
+            list.push({ id: d.id, ...(d.data() || {}) });
+          });
+        }
+      }
+      
+      // Cache ONLY populated from successful Firestore read!
+      entry.data = list;
+      entry.lastKnownGood = list;
+      entry.hasValidLkg = true;
+      entry.timestamp = Date.now();
+      return { success: true, data: list, fromCache: false };
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      console.error(`[Cache] Error fetching ${collectionName}:`, msg);
+      
+      // Quota Protection
+      if (msg.includes('usage limits') || msg.includes('Quota exceeded') || msg.includes('Resource exhausted')) {
+        console.error('!!! FIRESTORE QUOTA EXCEEDED !!! Entering cooldown.');
+        firebaseCooldownUntil = Date.now() + COOLDOWN_DURATION;
+      }
+
+      // If we have a previously confirmed Last Known Good dataset from a successful read:
+      if (entry.hasValidLkg && entry.lastKnownGood !== null) {
+        console.warn(`[Cache] Serving previously confirmed Last Known Good dataset for ${key}`);
+        return { success: true, data: entry.lastKnownGood, fromLkg: true };
+      }
+
+      // DO NOT overwrite LKG with [] or pretend empty dataset
+      // DO NOT fabricate fallback data
+      return { success: false, data: null, error: msg };
+    } finally {
+      pendingRequests.delete(key);
+    }
+  })();
+
+  pendingRequests.set(key, fetchPromise);
+  return fetchPromise;
+}
+
+// 1. Settings (Single document with LKG)
+app.get('/api/cache/settings', async (req, res) => {
+  res.set('Content-Type', 'application/json');
+  const now = Date.now();
+  const entry = memoryCache.settings;
+  const inCooldown = now < firebaseCooldownUntil;
+
+  if (entry.data && (now - entry.timestamp < CACHE_TTL_SETTINGS)) {
+    return res.json(entry.data);
+  }
+
+  if (inCooldown && entry.hasValidLkg && entry.lastKnownGood !== null) {
+    return res.json(entry.lastKnownGood);
+  }
+
+  if (pendingRequests.has('settings')) {
+    const result = await pendingRequests.get('settings');
+    if (result.success && result.data !== null) {
+      return res.json(result.data);
+    }
+    return res.status(503).json({
+      ok: false,
+      fallbackToClient: true,
+      error: result.error || 'Settings cache unavailable'
+    });
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const { db: adminDb } = getFirebaseAdmin();
+      const snap = await adminDb.collection('storeSettings').doc('main').get();
+      const data = snap.exists ? snap.data() : null;
+      if (data) {
+        entry.data = data;
+        entry.lastKnownGood = data;
+        entry.hasValidLkg = true;
+        entry.timestamp = Date.now();
+        return { success: true, data };
+      }
+      return { success: false, data: null, error: 'Settings document not found' };
+    } catch (e: any) {
+      console.error('[Cache] Settings fetch error:', e.message);
+      if (e.message.includes('usage limits') || e.message.includes('Quota exceeded')) {
+        firebaseCooldownUntil = Date.now() + COOLDOWN_DURATION;
+      }
+      if (entry.hasValidLkg && entry.lastKnownGood !== null) {
+        return { success: true, data: entry.lastKnownGood, fromLkg: true };
+      }
+      return { success: false, data: null, error: e.message };
+    } finally {
+      pendingRequests.delete('settings');
+    }
+  })();
+
+  pendingRequests.set('settings', fetchPromise);
+  const result = await fetchPromise;
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Settings cache unavailable'
+  });
+});
+
+// 2. Categories
+app.get('/api/cache/categories', async (req, res) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('categories', CACHE_TTL_GENERAL, 'categories');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Categories cache unavailable'
+  });
+});
+
+// 3. Products
+app.get('/api/cache/products', async (req, res) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('products', CACHE_TTL_PRODUCTS, 'products');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Products cache unavailable'
+  });
+});
+
+// 4. Banners (Supports both /api/cache/homepageBanners and /api/cache/banners)
+const handleBannersCache = async (req: express.Request, res: express.Response) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('banners', CACHE_TTL_GENERAL, 'homepageBanners');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Banners cache unavailable'
+  });
+};
+app.get('/api/cache/homepageBanners', handleBannersCache);
+app.get('/api/cache/banners', handleBannersCache);
+
+// 5. Offers (Supports both /api/cache/limitedOffers and /api/cache/offers)
+const handleOffersCache = async (req: express.Request, res: express.Response) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('offers', CACHE_TTL_GENERAL, 'limitedOffers');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Offers cache unavailable'
+  });
+};
+app.get('/api/cache/limitedOffers', handleOffersCache);
+app.get('/api/cache/offers', handleOffersCache);
+
+// 6. Coming Soon
+app.get('/api/cache/comingSoon', async (req, res) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('comingSoon', CACHE_TTL_GENERAL, 'comingSoon');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Coming soon cache unavailable'
+  });
+});
+
+// 7. Insurance Policies (Supports both /api/cache/insurancePolicies and /api/cache/insurance)
+const handleInsuranceCache = async (req: any, res: any) => {
+  res.set('Content-Type', 'application/json');
+  const result = await fetchWithCache('insurancePolicies', CACHE_TTL_GENERAL, 'insurancePolicies');
+  if (result.success && result.data !== null) {
+    return res.json(result.data);
+  }
+  return res.status(503).json({
+    ok: false,
+    fallbackToClient: true,
+    error: result.error || 'Insurance policies cache unavailable'
+  });
+};
+app.get('/api/cache/insurancePolicies', handleInsuranceCache);
+app.get('/api/cache/insurance', handleInsuranceCache);
+
+// 8. Clear Cache (Invalidate)
+app.post('/api/cache/clear', async (req, res) => {
+  res.set('Content-Type', 'application/json');
+  const { type } = req.body || {};
+  let target = type;
+  if (type === 'homepageBanners') target = 'banners';
+  if (type === 'limitedOffers') target = 'offers';
+  if (type === 'insurance' || type === 'insurancePolicies') target = 'insurancePolicies';
+  if (target && memoryCache[target]) {
+    memoryCache[target].data = null;
+    memoryCache[target].timestamp = 0;
+  } else if (!type || type === 'all') {
+    Object.keys(memoryCache).forEach(k => {
+      memoryCache[k].data = null;
+      memoryCache[k].timestamp = 0;
+    });
+  }
+  res.json({ ok: true, success: true, cleared: type || 'all' });
+});
+
+// ==========================================
+// STRICT API ROUTING GUARDS
+// Absolute guarantee that NO /api/* route ever falls through to Vite SPA or returns HTML
+app.all('/api/*', (req, res) => {
+  res.status(404).set('Content-Type', 'application/json').json({
+    ok: false,
+    fallbackToClient: true,
+    error: `API endpoint not found: ${req.method} ${req.path}`
+  });
+});
+
+// Error handling middleware for API routes - ensures errors return JSON, never HTML
+app.use('/api', (err: any, req: any, res: any, next: any) => {
+  console.error('[API Error]', req.path, err);
+  if (!res.headersSent) {
+    res.status(500).set('Content-Type', 'application/json').json({
+      ok: false,
+      fallbackToClient: true,
+      error: err?.message || 'Internal API Error'
+    });
+  }
+});
+// ==========================================
 
 async function startServer() {
   console.log('[Server] Starting server...');
@@ -802,6 +1209,18 @@ async function startServer() {
         vite.ssrFixStacktrace(e as Error);
         next(e);
       }
+    });
+
+    // Safeguard: Ensure no API request reaches Vite middleware or receives HTML fallback
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).set('Content-Type', 'application/json').json({
+          ok: false,
+          fallbackToClient: true,
+          error: `API route not found: ${req.method} ${req.path}`
+        });
+      }
+      next();
     });
 
     app.use(vite.middlewares);
@@ -906,104 +1325,68 @@ function getCategoryCanonicalSlugServer(category: { name: string; slug?: string;
 
 async function getServerStoreSettings(): Promise<any> {
   const now = Date.now();
-  if (serverSettingsCache && now - serverSettingsCacheTime < CACHE_TTL_MS) {
-    return serverSettingsCache;
+  if (memoryCache.settings.data && (now - memoryCache.settings.timestamp < CACHE_TTL_SETTINGS)) {
+    return memoryCache.settings.data;
+  }
+  if (memoryCache.settings.hasValidLkg && memoryCache.settings.lastKnownGood !== null) {
+    return memoryCache.settings.lastKnownGood;
   }
   try {
-    const firestore = getFirestoreInstance();
-    const docSnap = await firestore.collection('settings').doc('store').get();
-    if (docSnap.exists) {
-      serverSettingsCache = docSnap.data();
-      serverSettingsCacheTime = now;
-      return serverSettingsCache;
+    const adminDb = getFirebaseAdmin().db;
+    const snap = await adminDb.collection('storeSettings').doc('main').get();
+    const data = snap.exists ? snap.data() : null;
+    if (data) {
+      memoryCache.settings.data = data;
+      memoryCache.settings.lastKnownGood = data;
+      memoryCache.settings.hasValidLkg = true;
+      memoryCache.settings.timestamp = now;
     }
-  } catch {
-    // ignore
+    return data;
+  } catch (err: any) {
+    console.error('[Server SEO] Error fetching storeSettings for SSR:', err?.message || err);
+    return memoryCache.settings.lastKnownGood || null;
   }
-  return null;
 }
 
 async function getServerProducts(): Promise<ServerProduct[]> {
-  const now = Date.now();
-  if (serverProductsCache.length > 0 && now - serverProductsCacheTime < CACHE_TTL_MS) {
-    return serverProductsCache;
-  }
-  try {
-    const firestore = getFirestoreInstance();
-    const snap = await firestore.collection('products').where('isPublished', '==', true).get();
-    const list: ServerProduct[] = [];
-    snap.forEach((d) => {
-      const data = d.data();
-      list.push({
-        id: d.id,
-        name: data.name || '',
-        slug: data.slug || '',
-        price: Number(data.price) || 0,
-        oldPrice: data.oldPrice ? Number(data.oldPrice) : null,
-        description: data.description || '',
-        mainImageUrl: data.mainImageUrl || '',
-        categoryId: data.categoryId || '',
-        categoryName: data.categoryName || '',
-        isAvailable: data.isAvailable !== false,
-        stockQuantity: typeof data.stockQuantity === 'number' ? data.stockQuantity : 10,
-        stockStatus: data.stockStatus || 'in_stock'
-      });
-    });
-    serverProductsCache = list;
-    serverProductsCacheTime = now;
-    return list;
-  } catch (err) {
-    console.error('[Server SEO] Error fetching products:', err);
-    return serverProductsCache;
-  }
+  const result = await fetchWithCache('products', CACHE_TTL_PRODUCTS, 'products');
+  const products: any[] = (result.success && Array.isArray(result.data)) ? result.data : [];
+  return products.map(data => ({
+    id: data.id,
+    name: data.name || '',
+    slug: data.slug || '',
+    price: Number(data.price) || 0,
+    oldPrice: data.oldPrice ? Number(data.oldPrice) : null,
+    description: data.description || '',
+    mainImageUrl: data.mainImageUrl || '',
+    categoryId: data.categoryId || '',
+    categoryName: data.categoryName || '',
+    isAvailable: data.isAvailable !== false,
+    stockQuantity: typeof data.stockQuantity === 'number' ? data.stockQuantity : 10,
+    stockStatus: data.stockStatus || 'in_stock'
+  }));
 }
 
 async function getServerPromotions(): Promise<any[]> {
-  const now = Date.now();
-  if (serverPromosCache.length > 0 && now - serverPromosCacheTime < CACHE_TTL_MS) {
-    return serverPromosCache;
-  }
-  try {
-    const firestore = getFirestoreInstance();
-    const snap = await firestore.collection('promotions').get();
-    const list: any[] = [];
-    const nowDate = new Date();
-    snap.forEach((d) => {
-      const data = d.data();
-      if (data.isActive) {
-        const s = new Date(data.startDate);
-        const e = new Date(data.endDate);
-        if (nowDate >= s && nowDate <= e) {
-          list.push({ id: d.id, ...data });
-        }
+  const result = await fetchWithCache('offers', CACHE_TTL_GENERAL, 'limitedOffers');
+  const promotions: any[] = (result.success && Array.isArray(result.data)) ? result.data : [];
+  const nowDate = new Date();
+  const list: any[] = [];
+  promotions.forEach(data => {
+    if (data.isActive) {
+      const s = new Date(data.startDate);
+      const e = new Date(data.endDate);
+      if (nowDate >= s && nowDate <= e) {
+        list.push(data);
       }
-    });
-    serverPromosCache = list.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    serverPromosCacheTime = now;
-    return serverPromosCache;
-  } catch {
-    return serverPromosCache;
-  }
+    }
+  });
+  return list.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 }
 
 async function getServerCategories(): Promise<any[]> {
-  const now = Date.now();
-  if (serverCategoriesCache.length > 0 && now - serverCategoriesCacheTime < CACHE_TTL_MS) {
-    return serverCategoriesCache;
-  }
-  try {
-    const firestore = getFirestoreInstance();
-    const snap = await firestore.collection('categories').get();
-    const list: any[] = [];
-    snap.forEach((d) => {
-      list.push({ id: d.id, ...d.data() });
-    });
-    serverCategoriesCache = list;
-    serverCategoriesCacheTime = now;
-    return list;
-  } catch {
-    return serverCategoriesCache;
-  }
+  const result = await fetchWithCache('categories', CACHE_TTL_GENERAL, 'categories');
+  return (result.success && Array.isArray(result.data)) ? result.data : [];
 }
 
 function computeServerEffectivePrice(product: ServerProduct, promotions: any[]): { price: number; isCampaignActive: boolean } {
@@ -1114,7 +1497,20 @@ async function getMetadataForPath(pathname: string, req?: any) {
           is404: false
         };
       } else {
-        // Missing / Non-existent product
+        // If products list was completely empty due to backend connectivity/permission issue, DO NOT mark 404!
+        if (products.length === 0) {
+          console.warn(`[Server SEO] Products list is empty when resolving /product/${slug}. Serving 200 with fallback metadata.`);
+          return {
+            title: storeName,
+            description: defaultMeta.description,
+            image: defaultMeta.image,
+            canonical: `${protocol}://${host}${pathname}`,
+            url: `${protocol}://${host}${pathname}`,
+            type: 'website',
+            is404: false
+          };
+        }
+        // Missing / Non-existent product only when catalog was confirmed loaded
         return {
           title: `المنتج غير موجود | ${storeName}`,
           description: 'عذراً، المنتج الذي تبحث عنه غير متوفر حالياً أو تم حذفه من المعرض.',
@@ -1152,6 +1548,19 @@ async function getMetadataForPath(pathname: string, req?: any) {
             is404: false
           };
         } else {
+          // If categories list was completely empty due to backend connectivity/permission issue, DO NOT mark 404!
+          if (categories.length === 0) {
+            console.warn(`[Server SEO] Categories list is empty when resolving /category/${slug}. Serving 200 with fallback metadata.`);
+            return {
+              title: storeName,
+              description: defaultMeta.description,
+              image: defaultMeta.image,
+              canonical: `${protocol}://${host}${pathname}`,
+              url: `${protocol}://${host}${pathname}`,
+              type: 'website',
+              is404: false
+            };
+          }
           return {
             title: `القسم غير موجود | ${storeName}`,
             description: 'عذراً، القسم الذي تحاول الوصول إليه غير متوفر أو تم نقله.',

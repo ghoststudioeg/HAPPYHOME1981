@@ -88,6 +88,7 @@ export function AdminLayout({ currentPath, navigate, settings, children }: Admin
     { label: 'المنتجات', path: '/admin/products', icon: Package },
     { label: 'الأقسام', path: '/admin/categories', icon: Layers },
     { label: 'التقسيط', path: '/admin/installments', icon: CreditCard },
+    { label: 'تأمين فوري', path: '/admin/insurance', icon: Shield },
     { label: 'سجل التغييرات', path: '/admin/audit-logs', icon: History },
     { label: 'الإعدادات', path: '/admin/settings', icon: Settings }
   ];

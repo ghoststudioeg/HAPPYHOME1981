@@ -45,6 +45,7 @@ let offersCache: { data: LimitedOffer[], timestamp: number } | null = null;
 let comingSoonCache: { data: ComingSoonItem[], timestamp: number } | null = null;
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const pendingRequests = new Map<string, Promise<any>>();
 
 export const homepageService = {
   clearCache() {
@@ -53,6 +54,16 @@ export const homepageService = {
     newsCache = null;
     offersCache = null;
     comingSoonCache = null;
+    pendingRequests.clear();
+    if (typeof window !== 'undefined') {
+      ['banners', 'offers', 'comingSoon'].forEach(type => {
+        fetch('/api/cache/clear', { 
+          method: 'POST', 
+          headers: {'Content-Type': 'application/json'}, 
+          body: JSON.stringify({type}) 
+        }).catch(()=>{});
+      });
+    }
   },
 
   // -------------------------------------------------------------
@@ -61,92 +72,89 @@ export const homepageService = {
   async getSettings(): Promise<HomepageSettings> {
     if (!db) return DEFAULT_HOMEPAGE_SETTINGS;
 
-    // Return from cache if fresh
     if (settingsCache && (Date.now() - settingsCache.timestamp < CACHE_TTL)) {
       return { ...settingsCache.data };
     }
 
-    try {
-      const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
-      const snapshot = await getDoc(docRef);
+    if (pendingRequests.has('hp_settings')) return pendingRequests.get('hp_settings');
 
-      let data: HomepageSettings;
-      if (!snapshot.exists()) {
-        data = DEFAULT_HOMEPAGE_SETTINGS;
-      } else {
-        data = {
-          ...DEFAULT_HOMEPAGE_SETTINGS,
-          ...snapshot.data()
-        } as HomepageSettings;
+    const fetchPromise = (async () => {
+      try {
+        const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+        const snapshot = await getDoc(docRef);
+        let data = snapshot.exists() ? { ...DEFAULT_HOMEPAGE_SETTINGS, ...snapshot.data() } as HomepageSettings : DEFAULT_HOMEPAGE_SETTINGS;
+        settingsCache = { data, timestamp: Date.now() };
+        return data;
+      } catch (error) {
+        console.warn('Fallback to LKG hp settings:', error);
+        return settingsCache?.data || DEFAULT_HOMEPAGE_SETTINGS;
+      } finally {
+        pendingRequests.delete('hp_settings');
       }
+    })();
 
-      // Update cache
-      settingsCache = { data, timestamp: Date.now() };
-      return data;
-    } catch (error) {
-      console.warn('Could not load homepage settings, falling back to defaults:', error);
-      return DEFAULT_HOMEPAGE_SETTINGS;
-    }
+    pendingRequests.set('hp_settings', fetchPromise);
+    return fetchPromise;
   },
 
   async updateSettings(settings: Partial<HomepageSettings>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
-      const sanitizedPayload = sanitizeForFirestore({
-        ...settings,
-        updatedAt: new Date().toISOString()
-      });
-      await setDoc(docRef, sanitizedPayload, { merge: true });
-
-      // Invalidate cache
-      settingsCache = null;
-
-      try {
-        await auditService.recordAuditLog({
-          action: 'SETTINGS_CHANGED',
-          entityType: 'settings',
-          entityId: 'main',
-          entityName: 'إعدادات الصفحة الرئيسية',
-          after: settings
-        });
-      } catch (e) {}
-    } catch (error: any) {
-      console.error('Error updating homepage settings:', error);
-      throw new Error(error?.message || 'تعذر حفظ إعدادات الصفحة الرئيسية.');
-    }
+    const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+    const sanitizedPayload = sanitizeForFirestore({
+      ...settings,
+      updatedAt: new Date().toISOString()
+    });
+    await setDoc(docRef, sanitizedPayload, { merge: true });
+    this.clearCache();
   },
 
   // -------------------------------------------------------------
-  // 2. Hero Banners (إعلانات السلايدر الرئيسي)
+  // 2. Hero Banners
   // -------------------------------------------------------------
   async getAllBanners(): Promise<HeroBanner[]> {
     if (!db) return [];
-
-    // Return from cache if fresh
+    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+    
     if (bannersCache && (Date.now() - bannersCache.timestamp < CACHE_TTL)) {
       return [...bannersCache.data];
     }
 
-    try {
-      const colRef = collection(db, BANNERS_COLLECTION);
-      const snapshot = await getDocs(colRef);
-      const list: HeroBanner[] = [];
-      snapshot.forEach((d) => {
-        list.push({
-          id: d.id,
-          ...d.data()
-        } as HeroBanner);
-      });
-      const sorted = list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    if (pendingRequests.has('banners')) return pendingRequests.get('banners');
+    
+    const fetchPromise = (async () => {
+      try {
+        if (!isAdmin) {
+          try {
+            const res = await fetch('/api/cache/banners');
+            const contentType = res.headers.get('content-type') || '';
+            if (res.ok && contentType.includes('application/json')) {
+              const list = await res.json();
+              if (Array.isArray(list)) {
+                list.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                bannersCache = { data: [...list], timestamp: Date.now() };
+                return list;
+              }
+            }
+          } catch (fetchErr) {
+            console.warn('Failed to fetch banners from server cache:', fetchErr);
+          }
+        }
+        const colRef = collection(db, BANNERS_COLLECTION);
+        const snapshot = await getDocs(colRef);
+        const list: any[] = [];
+        snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+        bannersCache = { data: list, timestamp: Date.now() };
+        return list;
+      } catch (error) {
+        if (bannersCache) return [...bannersCache.data];
+        return [];
+      } finally {
+        pendingRequests.delete('banners');
+      }
+    })();
 
-      // Update cache
-      bannersCache = { data: [...sorted], timestamp: Date.now() };
-      return sorted;
-    } catch (error) {
-      console.error('Error fetching homepage banners:', error);
-      return [];
-    }
+    pendingRequests.set('banners', fetchPromise);
+    return fetchPromise;
   },
 
   async getActiveBanners(): Promise<HeroBanner[]> {
@@ -252,6 +260,9 @@ export const homepageService = {
 
       // Invalidate cache
       bannersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
+      }
 
       try {
         await auditService.recordAuditLog({
@@ -304,6 +315,9 @@ export const homepageService = {
 
       // Invalidate cache
       bannersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
+      }
 
       try {
         const bTitle = bannerData.title || (snap.exists() ? snap.data().title : id);
@@ -378,6 +392,9 @@ export const homepageService = {
 
       // Invalidate cache
       bannersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
+      }
 
       try {
         const deletedBanner = snap.exists() ? snap.data() : null;
@@ -533,13 +550,30 @@ export const homepageService = {
   // -------------------------------------------------------------
   async getAllOffers(): Promise<LimitedOffer[]> {
     if (!db) return [];
+    
+    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
 
-    // Return from cache if fresh
     if (offersCache && (Date.now() - offersCache.timestamp < CACHE_TTL)) {
       return [...offersCache.data];
     }
-
+    
     try {
+      if (!isAdmin) {
+        try {
+          const res = await fetch('/api/cache/offers');
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const list = await res.json();
+            if (Array.isArray(list)) {
+              offersCache = { data: [...list], timestamp: Date.now() };
+              return list;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('Failed to fetch offers from server cache:', fetchErr);
+        }
+      }
+
       const colRef = collection(db, OFFERS_COLLECTION);
       const snapshot = await getDocs(colRef);
       const list: LimitedOffer[] = [];
@@ -551,28 +585,27 @@ export const homepageService = {
       });
       
       let enrichedList = [...list];
-      // Safely enrich offers with authoritative product images/names from published products
-      try {
-        const publishedProducts = await productService.getAllProducts(false);
-        const productsMap = new Map();
-        publishedProducts.forEach(p => {
-          productsMap.set(p.id, p);
-        });
-        
-        enrichedList = list.map(offer => {
-          const prod = productsMap.get(offer.productId);
-          if (prod) {
-            // Fallback to custom offer image only if product image doesn't exist
-            offer.productImage = prod.mainImageUrl || offer.productImage;
-            offer.productName = prod.name || offer.productName;
-          }
-          return offer;
-        });
-      } catch (enrichError) {
-        console.warn('Could not enrich limited offers with product images:', enrichError);
+      if (isAdmin) {
+        // Enforce product images directly in admin cache to prevent discrepancies
+        try {
+          // Dynamic import to avoid circular dependency if possible, but here we just use the loaded productService
+          const { productService } = await import('./productService');
+          const publishedProducts = await productService.getAllProducts(false);
+          const productsMap = new Map();
+          publishedProducts.forEach(p => productsMap.set(p.id, p));
+          enrichedList = list.map(offer => {
+            const prod = productsMap.get(offer.productId);
+            if (prod) {
+              offer.productImage = prod.mainImageUrl || offer.productImage;
+              offer.productName = prod.name || offer.productName;
+            }
+            return offer;
+          });
+        } catch (e) {
+          console.warn('Could not enrich limited offers', e);
+        }
       }
-
-      // Update cache
+      
       offersCache = { data: enrichedList, timestamp: Date.now() };
       return enrichedList;
     } catch (error) {
@@ -609,6 +642,9 @@ export const homepageService = {
 
       // Invalidate cache
       offersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
+      }
 
       return docRef.id;
     } catch (error: any) {
@@ -636,6 +672,9 @@ export const homepageService = {
 
       // Invalidate cache
       offersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
+      }
       
       if (oldUrls.length > 0) {
         let newUrls: string[] = [];
@@ -664,6 +703,9 @@ export const homepageService = {
 
       // Invalidate cache
       offersCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
+      }
     } catch (error: any) {
       console.error('Error deleting offer:', error);
       throw new Error(error?.message || 'تعذر حذف العرض.');
@@ -675,13 +717,31 @@ export const homepageService = {
   // -------------------------------------------------------------
   async getAllComingSoon(): Promise<ComingSoonItem[]> {
     if (!db) return [];
+    
+    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
 
-    // Return from cache if fresh
     if (comingSoonCache && (Date.now() - comingSoonCache.timestamp < CACHE_TTL)) {
       return [...comingSoonCache.data];
     }
-
+    
     try {
+      if (!isAdmin) {
+        try {
+          const res = await fetch('/api/cache/comingSoon');
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const list = await res.json();
+            if (Array.isArray(list)) {
+              list.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+              comingSoonCache = { data: [...list], timestamp: Date.now() };
+              return list;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('Failed to fetch comingSoon from server cache:', fetchErr);
+        }
+      }
+
       const colRef = collection(db, COMING_SOON_COLLECTION);
       const snapshot = await getDocs(colRef);
       const list: ComingSoonItem[] = [];
@@ -692,8 +752,6 @@ export const homepageService = {
         } as ComingSoonItem);
       });
       const sorted = list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-
-      // Update cache
       comingSoonCache = { data: sorted, timestamp: Date.now() };
       return sorted;
     } catch (error) {
@@ -720,6 +778,9 @@ export const homepageService = {
 
       // Invalidate cache
       comingSoonCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
+      }
 
       return docRef.id;
     } catch (error: any) {
@@ -747,6 +808,9 @@ export const homepageService = {
 
       // Invalidate cache
       comingSoonCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
+      }
       
       if (oldUrls.length > 0) {
         let newUrls: string[] = [];
@@ -775,6 +839,9 @@ export const homepageService = {
 
       // Invalidate cache
       comingSoonCache = null;
+      if (typeof window !== 'undefined') {
+        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
+      }
     } catch (error: any) {
       console.error('Error deleting coming soon item:', error);
       throw new Error(error?.message || 'تعذر حذف المنتج القادم.');

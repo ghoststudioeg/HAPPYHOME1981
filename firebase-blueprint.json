@@ -472,6 +472,30 @@
         "disclaimer": { "type": "string", "maxLength": 500 }
       },
       "required": ["providerId", "months", "calculationType"]
+    },
+    "InsurancePolicy": {
+      "title": "InsurancePolicy",
+      "description": "Device and screen insurance policy configurations and tier rules",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "provider": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["full_device", "screen", "custom"] },
+        "durationMonths": { "type": "number" },
+        "coverageType": { "type": "string", "maxLength": 200 },
+        "scopeType": { "type": "string", "enum": ["all_eligible", "category", "product"] },
+        "categoryIds": { "type": "array" },
+        "productIds": { "type": "array" },
+        "pricingMode": { "type": "string", "enum": ["tiered_rules", "fixed_price"] },
+        "fixedPrice": { "type": "number" },
+        "isFree": { "type": "boolean" },
+        "priceRules": { "type": "array" },
+        "active": { "type": "boolean" },
+        "shortDescription": { "type": "string", "maxLength": 500 },
+        "coverageDescription": { "type": "string", "maxLength": 2000 },
+        "customerNotes": { "type": "string", "maxLength": 2000 }
+      },
+      "required": ["name", "provider", "type", "durationMonths", "coverageType", "pricingMode", "active"]
     }
   },
   "firestore": {
@@ -578,6 +602,10 @@
     "/installmentPlans/{planId}": {
       "schema": "InstallmentPlan",
       "description": "Financing installment plans and duration rules"
+    },
+    "/insurancePolicies/{policyId}": {
+      "schema": "InsurancePolicy",
+      "description": "Device and screen insurance policies and tier pricing rules"
     }
   }
 }

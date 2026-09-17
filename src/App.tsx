@@ -48,6 +48,7 @@ import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage';
 import { AdminPromotionsPage } from './pages/admin/AdminPromotionsPage';
 import { AdminAuditLogPage } from './pages/admin/AdminAuditLogPage';
 import { AdminInstallmentsPage } from './pages/admin/AdminInstallmentsPage';
+import { AdminInsurancePage } from './pages/admin/AdminInsurancePage';
 
 function StoreApp() {
   const { currentPath, navigate } = useRouter();
@@ -265,6 +266,8 @@ function StoreApp() {
         return <AdminAuditLogPage />;
       case '/admin/installments':
         return <AdminInstallmentsPage />;
+      case '/admin/insurance':
+        return <AdminInsurancePage />;
       case '/admin/settings':
         return <AdminSettingsPage onSettingsUpdated={(newSetts) => setSettings(newSetts)} />;
       default:

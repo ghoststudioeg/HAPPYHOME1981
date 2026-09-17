@@ -281,5 +281,11 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
+    // Insurance Policies: public read active policies only, admin full CRUD
+    match /insurancePolicies/{policyId} {
+      allow read: if isAdmin() || resource.data.active == true;
+      allow create, update, delete: if isAdmin();
+    }
   }
 }

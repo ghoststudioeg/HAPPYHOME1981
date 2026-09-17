@@ -465,6 +465,17 @@ export function InvoiceModal({ order, isOpen, onClose, storeSettings, isAdmin = 
                   </div>
                 )}
 
+                {order.selectedInsurance && (
+                  <div className="flex justify-between items-center text-emerald-700 font-bold pb-1 border-b border-slate-200">
+                    <span>
+                      🛡️ تأمين فوري ({order.selectedInsurance.name}):
+                    </span>
+                    <span className="font-mono">
+                      {order.selectedInsurance.isFree ? 'مشمول مجانًا' : `+ ${order.selectedInsurance.insurancePrice.toLocaleString('ar-EG')} ج.م`}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center text-slate-600 pb-1 border-b border-slate-200">
                   <span>مصاريف الشحن والتوصيل:</span>
                   <span className="font-mono font-bold">

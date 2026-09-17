@@ -60,6 +60,10 @@ import { FinancingProvider, InstallmentPlan } from '../types/installment';
 import { InstallmentProductBadge } from '../components/installments/InstallmentProductBadge';
 import { InstallmentModal } from '../components/installments/InstallmentModal';
 import { ProductPdfInquiryModal } from '../components/product/ProductPdfInquiryModal';
+import { insuranceService } from '../lib/data/insuranceService';
+import { InsurancePolicy } from '../types/insurance';
+import { InsuranceProductBadge } from '../components/insurance/InsuranceProductBadge';
+import { InsuranceModal } from '../components/insurance/InsuranceModal';
 
 interface ProductDetailPageProps {
   slug: string;
@@ -113,6 +117,21 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>([]);
   const [installmentModalOpen, setInstallmentModalOpen] = useState(false);
   const [selectedInstallmentProviderId, setSelectedInstallmentProviderId] = useState<string | undefined>(undefined);
+
+  // Fawry Insurance State
+  const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
+  const [insuranceModalOpen, setInsuranceModalOpen] = useState(false);
+  const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<InsurancePolicy | null>(null);
+
+  // Temporary Diagnostic Debug State
+  const [debugInfo, setDebugInfo] = useState<{
+    receivedIdentifier: string;
+    pathname: string;
+    queryExecuted: string;
+    firebaseResponse: string;
+    finalErrorMessage: string | null;
+    timestamp: string;
+  } | null>(null);
 
   const favorited = product ? isFavorite(product.id) : false;
 
@@ -194,27 +213,66 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
   }, [product, selectedVariant, selectedColor]);
 
   const loadData = async () => {
+    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    console.log('[ProductDetailPage Debug] === LOAD DATA STARTED ===');
+    console.log('[ProductDetailPage Debug] 1. URL Identifier:', {
+      pathname: currentPath,
+      param: slug,
+      decodedValue: decodeURIComponent(slug || '')
+    });
+
     try {
       setLoading(true);
       setError(null);
       setResolvedCategory(null);
       setCategoryStatus('loading');
 
-      const [prod, setts, prods, banners, promos, instProviders, instPlans] = await Promise.all([
+      const queryDescription = `productService.getProductBySlug("${slug}") & getAllProducts(false) [collection: 'products', filter: 'isPublished == true']`;
+      console.log('[ProductDetailPage Debug] 2. Query Executed:', queryDescription);
+
+      const [prod, setts, prods, banners, promos, instProviders, instPlans, insPolicies] = await Promise.all([
         productService.getProductBySlug(slug),
         settingsService.getSettings(),
         productService.getAllProducts(false),
         homepageService.getActiveBanners().catch(() => []),
         promotionService.getActivePromotions().catch(() => []),
         installmentService.getProviders().catch(() => []),
-        installmentService.getPlans().catch(() => [])
+        installmentService.getPlans().catch(() => []),
+        insuranceService.getPolicies().catch(() => [])
       ]);
 
+      console.log('[ProductDetailPage Debug] 3. Firebase Response:', {
+        status: prod ? 'Product Document Found' : 'Product Document Not Found',
+        id: prod?.id,
+        slug: prod?.slug,
+        name: prod?.name,
+        isPublished: prod?.isPublished,
+        dataKeys: prod ? Object.keys(prod) : []
+      });
+
       if (!prod) {
+        console.warn('[ProductDetailPage Debug] Product not found in Firestore for slug/id:', slug);
+        setDebugInfo({
+          receivedIdentifier: slug,
+          pathname: currentPath,
+          queryExecuted: queryDescription,
+          firebaseResponse: 'Document not found (null returned from query)',
+          finalErrorMessage: 'لم يتم العثور على المنتج المطلوب في قاعدة البيانات.',
+          timestamp: new Date().toLocaleTimeString()
+        });
         setError('product_not_found');
         setLoading(false);
         return;
       }
+
+      setDebugInfo({
+        receivedIdentifier: slug,
+        pathname: currentPath,
+        queryExecuted: queryDescription,
+        firebaseResponse: `Success: Document found (id: ${prod.id}, name: "${prod.name}", isPublished: ${prod.isPublished}, totalKeys: ${Object.keys(prod).length})`,
+        finalErrorMessage: null,
+        timestamp: new Date().toLocaleTimeString()
+      });
 
       setProduct(prod);
       setSettings(setts);
@@ -223,6 +281,7 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
       setActivePromotions(promos || []);
       setInstallmentProviders(instProviders || []);
       setInstallmentPlans(instPlans || []);
+      setInsurancePolicies(insPolicies || []);
 
       // Set default color / variant if available
       const variantList = prod.variants || prod.colorVariants;
@@ -270,7 +329,16 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
         setCategoryStatus('none');
       }
     } catch (err: any) {
-      console.error('Failed to load product details:', err);
+      console.error('[ProductDetailPage Debug] Failed to load product details:', err);
+      const errMsg = err?.message || String(err);
+      setDebugInfo({
+        receivedIdentifier: slug,
+        pathname: currentPath,
+        queryExecuted: `productService.getProductBySlug("${slug}") & Firestore queries`,
+        firebaseResponse: `Error: ${errMsg}`,
+        finalErrorMessage: errMsg,
+        timestamp: new Date().toLocaleTimeString()
+      });
       setError('حدث خطأ أثناء تحميل بيانات المنتج من قاعدة البيانات.');
     } finally {
       setLoading(false);
@@ -450,8 +518,23 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
 
   if (error || !product) {
     return (
-      <div className="max-w-xl mx-auto my-16 px-4" dir="rtl">
+      <div className="max-w-2xl mx-auto my-16 px-4 space-y-6" dir="rtl">
         <ErrorState message={error || 'تعذر العثور على المنتج المطلوب.'} onRetry={loadData} />
+        {debugInfo && (
+          <div className="rounded-2xl bg-slate-900 border border-amber-500/40 p-4 text-xs font-mono text-amber-200/90 space-y-2 shadow-xl" dir="ltr">
+            <div className="flex items-center justify-between pb-2 border-b border-amber-500/20">
+              <span className="font-bold text-amber-400">🔍 Product Details Diagnostic Debug Info</span>
+              <span className="text-[10px] text-amber-400/60">{debugInfo.timestamp}</span>
+            </div>
+            <div><strong className="text-white">Received ID / Slug:</strong> {debugInfo.receivedIdentifier}</div>
+            <div><strong className="text-white">URL Pathname:</strong> {debugInfo.pathname}</div>
+            <div><strong className="text-white">Query Executed:</strong> {debugInfo.queryExecuted}</div>
+            <div><strong className="text-white">Firebase Response:</strong> {debugInfo.firebaseResponse}</div>
+            {debugInfo.finalErrorMessage && (
+              <div><strong className="text-rose-400">Final Error Message:</strong> <span className="text-rose-300">{debugInfo.finalErrorMessage}</span></div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -784,6 +867,21 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
                     setInstallmentModalOpen(true);
                   }}
                 />
+
+                {/* Fawry Product Insurance Badge */}
+                <InsuranceProductBadge
+                  product={product}
+                  productPrice={pricingDetails.effectivePrice}
+                  category={resolvedCategory}
+                  policies={insurancePolicies}
+                  onOpenModal={(policyId) => {
+                    if (policyId) {
+                      const found = insurancePolicies.find(p => p.id === policyId);
+                      if (found) setSelectedInsurancePolicy(found);
+                    }
+                    setInsuranceModalOpen(true);
+                  }}
+                />
               </div>
 
               {/* Colors / Variants Selector */}
@@ -971,6 +1069,23 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
         />
       )}
 
+      {/* 6.5. Fawry Insurance Details & Selection Modal */}
+      {product && (
+        <InsuranceModal
+          isOpen={insuranceModalOpen}
+          onClose={() => setInsuranceModalOpen(false)}
+          product={product}
+          productPrice={pricingDetails.effectivePrice}
+          category={resolvedCategory}
+          policies={insurancePolicies}
+          initialSelectedPolicyId={selectedInsurancePolicy?.id}
+          onSelectPolicy={(policy) => {
+            setSelectedInsurancePolicy(policy);
+          }}
+          settings={settings}
+        />
+      )}
+
       {/* 7. Product PDF Inquiry & Generation Modal */}
       {product && pdfModalOpen && (
         <ProductPdfInquiryModal
@@ -985,8 +1100,31 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
           resolvedCategory={resolvedCategory}
           installmentProviders={installmentProviders}
           installmentPlans={installmentPlans}
+          insurancePolicies={insurancePolicies}
+          initialInsurancePolicy={selectedInsurancePolicy}
           settings={settings}
         />
+      )}
+
+      {/* Diagnostic Debug Details Box */}
+      {debugInfo && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-8 mb-4">
+          <details className="rounded-2xl bg-slate-900/80 border border-slate-700/60 p-3.5 text-xs font-mono text-slate-300">
+            <summary className="cursor-pointer font-bold text-slate-300 select-none flex items-center justify-between">
+              <span>🔍 Diagnostic Debug Information (Product Details)</span>
+              <span className="text-[10px] text-emerald-400 font-sans">Firebase OK</span>
+            </summary>
+            <div className="mt-3 space-y-1.5 pt-2 border-t border-slate-700/40 text-[11px]" dir="ltr">
+              <div><strong className="text-white">Received ID / Slug:</strong> {debugInfo.receivedIdentifier}</div>
+              <div><strong className="text-white">URL Pathname:</strong> {debugInfo.pathname}</div>
+              <div><strong className="text-white">Query Executed:</strong> {debugInfo.queryExecuted}</div>
+              <div><strong className="text-white">Firebase Response:</strong> {debugInfo.firebaseResponse}</div>
+              {debugInfo.finalErrorMessage && (
+                <div><strong className="text-rose-400">Final Error Message:</strong> {debugInfo.finalErrorMessage}</div>
+              )}
+            </div>
+          </details>
+        </div>
       )}
     </div>
   );

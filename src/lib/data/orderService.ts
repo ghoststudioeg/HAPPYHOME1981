@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { Order, OrderStatus, OrderItem, Product, InventoryLog, Coupon } from '../../types';
+import { SelectedInsuranceSnapshot } from '../../types/insurance';
 import { notificationEngine } from '../notificationEngine';
 import { analyticsService } from './analyticsService';
 import { couponService } from './couponService';
@@ -34,6 +35,7 @@ export interface CheckoutInput {
   couponCode?: string;
   paymentMethod?: string;
   idempotencyKey?: string;
+  selectedInsurance?: SelectedInsuranceSnapshot;
 }
 
 export interface ValidatedOrderCalculation {
@@ -329,6 +331,9 @@ export const orderService = {
   mapOrderDoc(id: string, data: any): Order {
     return {
       id,
+      invoiceNumber: data.invoiceNumber || undefined,
+      invoiceStatus: data.invoiceStatus || undefined,
+      invoiceCreatedAt: data.invoiceCreatedAt || undefined,
       customerUid: data.customerUid || data.userId || 'guest',
       customerName: data.customerName || '',
       customerEmail: data.customerEmail || '',
@@ -340,6 +345,7 @@ export const orderService = {
       discount: data.discount || 0,
       shippingCost: data.shippingCost || 0,
       total: data.total || data.totalAmount || 0,
+      selectedInsurance: data.selectedInsurance || undefined,
       couponCode: data.couponCode || '',
       paymentMethod: data.paymentMethod || 'cash_on_delivery',
       paymentStatus: data.paymentStatus || 'pending',

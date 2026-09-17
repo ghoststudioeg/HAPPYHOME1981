@@ -25,6 +25,8 @@ import { Product, ProductColorVariant, ProductColor, StoreSettings, Category } f
 import { FinancingProvider, InstallmentPlan, InstallmentCalculationResult } from '../../types/installment';
 import { filterEligiblePlans, calculateManualInstallment } from '../../lib/installments/calculationEngine';
 import { ProviderLogo } from '../installments/ProviderLogo';
+import { InsurancePolicy, SelectedInsuranceSnapshot } from '../../types/insurance';
+import { filterEligibleInsurancePolicies, createInsuranceSnapshot } from '../../lib/insurance/insuranceEngine';
 
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
@@ -48,6 +50,8 @@ interface ProductPdfInquiryModalProps {
   resolvedCategory: Category | null;
   installmentProviders: FinancingProvider[];
   installmentPlans: InstallmentPlan[];
+  insurancePolicies?: InsurancePolicy[];
+  initialInsurancePolicy?: InsurancePolicy | null;
   settings: StoreSettings | null;
 }
 
@@ -63,6 +67,8 @@ export function ProductPdfInquiryModal({
   resolvedCategory,
   installmentProviders,
   installmentPlans,
+  insurancePolicies = [],
+  initialInsurancePolicy = null,
   settings
 }: ProductPdfInquiryModalProps) {
   const [step, setStep] = useState<'payment_method' | 'cash_timing' | 'provider_selection' | 'duration_selection' | 'delivery_method' | 'review' | 'generating' | 'success' | 'error'>('payment_method');
@@ -77,6 +83,8 @@ export function ProductPdfInquiryModal({
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [isShareSupported, setIsShareSupported] = useState(false);
 
+  const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<InsurancePolicy | null>(initialInsurancePolicy || null);
+
   const printContainerRef = useRef<HTMLDivElement>(null);
 
   // Automatically reset the modal journey whenever opened
@@ -88,16 +96,27 @@ export function ProductPdfInquiryModal({
       setSelectedPlan(null);
       setDeliveryMethod(null);
       setCashPaymentTiming(null);
+      setSelectedInsurancePolicy(initialInsurancePolicy || null);
       setGenerationState('idle');
       setPdfBlob(null);
       setPdfFile(null);
       setErrorMessage(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialInsurancePolicy]);
 
   const colorName = useMemo(() => {
     return selectedVariant?.colorName || selectedVariant?.name || selectedColor?.name || (selectedColor as any)?.colorName || '';
   }, [selectedVariant, selectedColor]);
+
+  const eligibleInsurancePolicies = useMemo(() => {
+    if (!product || !insurancePolicies || insurancePolicies.length === 0) return [];
+    return filterEligibleInsurancePolicies(insurancePolicies, product, pricingDetails.effectivePrice, resolvedCategory);
+  }, [insurancePolicies, product, pricingDetails.effectivePrice, resolvedCategory]);
+
+  const activeInsuranceSnapshot: SelectedInsuranceSnapshot | null = useMemo(() => {
+    if (!selectedInsurancePolicy) return null;
+    return createInsuranceSnapshot(selectedInsurancePolicy, pricingDetails.effectivePrice, product.id);
+  }, [selectedInsurancePolicy, pricingDetails.effectivePrice, product.id]);
 
   const normalizedFileName = useMemo(() => {
     const safeName = product.name
@@ -132,6 +151,16 @@ export function ProductPdfInquiryModal({
     const priceText = `${pricingDetails.effectivePrice.toLocaleString('ar-EG')} ج.م`;
     msg += `السعر: *${priceText}*\n`;
 
+    if (activeInsuranceSnapshot) {
+      const insPriceText = activeInsuranceSnapshot.isFree ? 'مشمول مجانًا' : `${activeInsuranceSnapshot.insurancePrice.toLocaleString('ar-EG')} ج.م`;
+      msg += `تأمين فوري: *${activeInsuranceSnapshot.name} (${insPriceText})*\n`;
+      msg += `مدة التأمين: *${activeInsuranceSnapshot.coverageDurationMonths} شهر*\n`;
+      if (!activeInsuranceSnapshot.isFree && activeInsuranceSnapshot.insurancePrice > 0) {
+        const grandTotal = pricingDetails.effectivePrice + activeInsuranceSnapshot.insurancePrice;
+        msg += `إجمالي السعر مع التأمين: *${grandTotal.toLocaleString('ar-EG')} ج.م*\n`;
+      }
+    }
+
     const deliveryText = deliveryMethod === 'shipping' ? 'الشحن' : 'الاستلام من الفرع';
 
     if (paymentMethod === 'cash') {
@@ -157,7 +186,7 @@ export function ProductPdfInquiryModal({
       msg += `رابط المنتج: ${canonicalUrl}\n`;
     }
     return msg;
-  }, [product.name, colorName, paymentMethod, selectedPlan, deliveryMethod, cashPaymentTiming, pricingDetails.effectivePrice, canonicalUrl]);
+  }, [product.name, colorName, paymentMethod, selectedPlan, deliveryMethod, cashPaymentTiming, pricingDetails.effectivePrice, activeInsuranceSnapshot, canonicalUrl]);
 
   // Get Store WhatsApp Link
   const whatsappUrl = useMemo(() => {
@@ -619,6 +648,16 @@ export function ProductPdfInquiryModal({
                         </span>
                       )}
                     </div>
+                    {activeInsuranceSnapshot && (
+                      <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '6px', padding: '4px 8px', marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '8.5px', color: '#166534', fontWeight: 'bold' }}>
+                          🛡️ تأمين فوري: {activeInsuranceSnapshot.name} ({activeInsuranceSnapshot.coverageDurationMonths} شهر)
+                        </span>
+                        <span style={{ fontSize: '8.5px', color: '#15803D', fontWeight: '900' }}>
+                          {activeInsuranceSnapshot.isFree ? 'مشمول مجانًا' : `+ ${activeInsuranceSnapshot.insurancePrice.toLocaleString('ar-EG')} ج.م`}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Compact Variant / Stock info */}
@@ -693,6 +732,14 @@ export function ProductPdfInquiryModal({
                           كاش — {cashPaymentTiming === 'now' ? 'الدفع الآن' : 'الدفع عند الاستلام'}
                         </span>
                       </div>
+                      {activeInsuranceSnapshot && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9.5px', color: '#166534', borderBottom: '1px solid #E2E8F0', paddingBottom: '4px' }}>
+                          <span style={{ fontWeight: 'bold' }}>🛡️ تأمين فوري ({activeInsuranceSnapshot.coverageDurationMonths} شهر):</span>
+                          <span style={{ fontWeight: '900' }}>
+                            {activeInsuranceSnapshot.isFree ? 'مشمول مجانًا' : `+ ${activeInsuranceSnapshot.insurancePrice.toLocaleString('ar-EG')} ج.م`}
+                          </span>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9.5px', color: '#64748B', paddingTop: '1px' }}>
                         <span style={{ fontWeight: 'bold', color: '#0F172A' }}>طريقة الاستلام المطلوبة:</span>
                         <span style={{ fontWeight: '900', color: '#D4AF37' }}>{deliveryMethod === 'shipping' ? 'الشحن والتوصيل 🚚' : 'الاستلام من الفرع 🏪'}</span>
@@ -736,6 +783,12 @@ export function ProductPdfInquiryModal({
                             <span>طريقة الاستلام:</span>
                             <span style={{ fontWeight: 'bold', color: '#0F172A' }}>{deliveryMethod === 'shipping' ? 'الشحن 🚚' : 'الاستلام من الفرع 🏪'}</span>
                           </div>
+                          {activeInsuranceSnapshot && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #F1F5F9', paddingBottom: '2px', color: '#166534' }}>
+                              <span>🛡️ تأمين فوري:</span>
+                              <span style={{ fontWeight: 'bold' }}>{activeInsuranceSnapshot.name} ({activeInsuranceSnapshot.isFree ? 'مشمول مجانًا' : `+ ${activeInsuranceSnapshot.insurancePrice.toLocaleString('ar-EG')} ج.م`})</span>
+                            </div>
+                          )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px' }}>
                             <span style={{ fontWeight: 'bold', color: '#D4AF37' }}>القسط الشهري:</span>
                             <span style={{ fontWeight: '900', color: '#16A34A', fontSize: '12px', fontFamily: 'system-ui' }}>{selectedPlan.monthlyPayment.toLocaleString('ar-EG')} ج.م / شهر</span>
@@ -1264,6 +1317,79 @@ export function ProductPdfInquiryModal({
                         <span className="text-[var(--text-secondary)]">طريقة الاستلام:</span>
                         <span className="font-bold text-[var(--text-primary)]">{deliveryMethod === 'shipping' ? '🚚 الشحن' : '🏪 الاستلام من الفرع'}</span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional Fawry Insurance Selection */}
+                {eligibleInsurancePolicies.length > 0 && (
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 p-3.5 sm:p-4 rounded-2xl space-y-2.5 text-right">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-black text-[var(--text-primary)]">وثيقة تأمين فوري المعتمدة</span>
+                      </div>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        اختياري
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label 
+                        onClick={() => setSelectedInsurancePolicy(null)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          !selectedInsurancePolicy 
+                            ? 'border-[#D4AF37] bg-[var(--surface-elevated)] font-bold' 
+                            : 'border-[var(--border)] bg-[var(--surface)] opacity-80 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="radio" 
+                            name="inquiry_insurance_policy" 
+                            checked={!selectedInsurancePolicy} 
+                            onChange={() => setSelectedInsurancePolicy(null)}
+                            className="accent-[#D4AF37]" 
+                          />
+                          <span className="text-[var(--text-primary)]">بدون تأمين إضافي</span>
+                        </div>
+                        <span className="text-[var(--text-secondary)] text-[11px]">الضمان العادي فقط</span>
+                      </label>
+
+                      {eligibleInsurancePolicies.map((pol) => {
+                        const snap = createInsuranceSnapshot(pol, pricingDetails.effectivePrice, product.id);
+                        const isSelected = selectedInsurancePolicy?.id === pol.id;
+                        return (
+                          <label
+                            key={pol.id}
+                            onClick={() => setSelectedInsurancePolicy(pol)}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-emerald-500 bg-emerald-500/10 font-bold shadow-sm' 
+                                : 'border-[var(--border)] bg-[var(--surface)] hover:border-emerald-500/40'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="radio" 
+                                name="inquiry_insurance_policy" 
+                                checked={isSelected} 
+                                onChange={() => setSelectedInsurancePolicy(pol)}
+                                className="accent-emerald-600" 
+                              />
+                              <div>
+                                <span className="text-[var(--text-primary)] block">{pol.name}</span>
+                                <span className="text-[10px] text-[var(--text-secondary)] font-normal">
+                                  {pol.durationMonths} شهر ({pol.type === 'screen' ? 'تأمين شاشة' : 'تأمين شامل للجهاز'})
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-mono font-black text-xs">
+                              {snap.isFree ? 'مشمول مجانًا' : `+ ${snap.insurancePrice.toLocaleString('ar-EG')} ج.م`}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
