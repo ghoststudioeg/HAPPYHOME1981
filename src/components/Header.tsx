@@ -10,6 +10,7 @@ import { useAuth } from '../lib/authContext';
 import { NotificationBell } from './NotificationBell';
 import { ThemeToggle } from './ThemeToggle';
 import { Logo } from './Logo';
+import { VoiceSearchButton } from './voice/VoiceSearchButton';
 
 
 interface HeaderProps {
@@ -227,21 +228,36 @@ export function Header({ currentPath, navigate, settings }: HeaderProps) {
                   }}
                   onFocus={() => setIsSearchFocused(true)}
                   placeholder="ابحث بالاسم، SKU، أو القسم..."
-                  className="glass-input rounded-full py-2.5 pr-9 pl-8 text-xs w-56 md:w-64 lg:w-76 placeholder-[var(--text-muted)] transition-all focus:w-72 md:focus:w-80 lg:focus:w-92"
+                  className="glass-input rounded-full py-2.5 pr-9 pl-16 text-xs w-56 md:w-64 lg:w-76 placeholder-[var(--text-muted)] transition-all focus:w-72 md:focus:w-80 lg:focus:w-92"
                 />
                 <Search className="w-3.5 h-3.5 text-[var(--text-secondary)] absolute right-3 top-3 pointer-events-none" />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setIsSearchFocused(false);
+                <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setIsSearchFocused(false);
+                      }}
+                      className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer p-0.5"
+                      title="مسح البحث"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <VoiceSearchButton
+                    size="sm"
+                    onTranscript={(text) => {
+                      setSearchQuery(text);
+                      setIsSearchFocused(true);
                     }}
-                    className="absolute left-3 top-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                    onSubmit={(finalText) => {
+                      setSearchQuery(finalText);
+                      setIsSearchFocused(true);
+                      navigate(`/products?q=${encodeURIComponent(finalText.trim())}`);
+                    }}
+                  />
+                </div>
               </form>
 
               {/* Desktop Instant Results Dropdown */}
@@ -544,18 +560,34 @@ export function Header({ currentPath, navigate, settings }: HeaderProps) {
               }}
               placeholder="ابحث بالاسم أو الموديل أو القسم..."
               autoFocus
-              className="w-full glass-input rounded-xl py-3 pr-10 pl-10 text-xs text-[var(--text-primary)]"
+              className="w-full glass-input rounded-xl py-3 pr-10 pl-16 text-xs text-[var(--text-primary)]"
             />
             <Search className="w-4 h-4 text-[var(--text-secondary)] absolute right-3.5 top-3.5 pointer-events-none" />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute left-3.5 top-3.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 cursor-pointer"
+                  title="مسح"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <VoiceSearchButton
+                size="sm"
+                onTranscript={(text) => {
+                  setSearchQuery(text);
+                  setIsSearchFocused(true);
+                }}
+                onSubmit={(finalText) => {
+                  setSearchQuery(finalText);
+                  setIsSearchFocused(true);
+                  navigate(`/products?q=${encodeURIComponent(finalText.trim())}`);
+                  setSearchOpen(false);
+                }}
+              />
+            </div>
           </form>
 
           {/* Mobile Instant Results List */}

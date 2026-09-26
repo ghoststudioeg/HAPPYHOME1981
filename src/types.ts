@@ -370,6 +370,16 @@ export interface UserFavoriteItem {
   categoryName?: string;
   slug: string;
   addedAt: string;
+  groupName?: string; // e.g. 'أدوات المطبخ', 'هدايا للمستقبل'
+}
+
+export interface WishlistGroup {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  createdAt?: string;
 }
 
 export interface RecentlyViewedItem {

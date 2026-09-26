@@ -13,6 +13,7 @@ import { ErrorState } from '../components/ErrorState';
 import { HeroBannerSlider } from '../components/home/HeroBannerSlider';
 import { ProductFiltersSidebar } from '../components/product/ProductFiltersSidebar';
 import { ActiveFilterChips } from '../components/product/ActiveFilterChips';
+import { VoiceSearchButton } from '../components/voice/VoiceSearchButton';
 import { Search, SlidersHorizontal, ArrowUpDown, X, Sparkles } from 'lucide-react';
 import {
   FilterState,
@@ -239,17 +240,26 @@ export function ProductsPage({
             value={filterState.search}
             onChange={(e) => handleFilterChange({ ...filterState, search: e.target.value })}
             placeholder="ابحث فورياً باسم المنتج، كود SKU، الماركة، أو المواصفات..."
-            className="w-full glass-input text-xs sm:text-sm text-[#F8FAFC] placeholder-zinc-500 rounded-2xl py-3 pr-11 pl-10 focus:border-[#D4AF37] outline-none"
+            className="w-full glass-input text-xs sm:text-sm text-[#F8FAFC] placeholder-zinc-500 rounded-2xl py-3 pr-11 pl-20 focus:border-[#D4AF37] outline-none"
           />
           <Search className="w-4 h-4 text-[#D4AF37] absolute right-4 top-3.5 pointer-events-none" />
-          {filterState.search && (
-            <button
-              onClick={() => handleFilterChange({ ...filterState, search: '' })}
-              className="absolute left-3.5 top-3.5 text-[#94A3B8] hover:text-[#F8FAFC] p-0.5 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            {filterState.search && (
+              <button
+                type="button"
+                onClick={() => handleFilterChange({ ...filterState, search: '' })}
+                className="text-[#94A3B8] hover:text-[#F8FAFC] p-1 cursor-pointer"
+                title="مسح البحث"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+            <VoiceSearchButton
+              size="sm"
+              onTranscript={(text) => handleFilterChange({ ...filterState, search: text })}
+              onSubmit={(finalText) => handleFilterChange({ ...filterState, search: finalText })}
+            />
+          </div>
         </div>
 
         {/* Active Filters Chips Bar */}

@@ -8,4 +8,4 @@ Disallow: /favorites
 Disallow: /checkout
 Disallow: /order-confirmation
 
-Sitemap: /sitemap.xml
+Sitemap: https://happyhome1981.onrender.com/sitemap.xml

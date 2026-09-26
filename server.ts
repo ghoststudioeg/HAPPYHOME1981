@@ -76,6 +76,182 @@ const authorizeAdmin = (req: any, res: any, next: any) => {
 const app = express();
 const PORT = 3000;
 
+// ============================================================================
+// CONSTANTS & LAST-KNOWN-GOOD CACHES FOR STATIC SEO / HEALTH ENDPOINTS
+// Completely independent of Firebase, Firestore, Supabase, cache warmup or SSR
+// ============================================================================
+const STATIC_ROBOTS_TXT = `User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /invoice/*
+Disallow: /profile
+Disallow: /favorites
+Disallow: /checkout
+Disallow: /order-confirmation
+
+Sitemap: https://happyhome1981.onrender.com/sitemap.xml`;
+
+const FALLBACK_MINIMAL_SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://happyhome1981.onrender.com/</loc>
+    <priority>1.0</priority>
+    <changefreq>daily</changefreq>
+  </url>
+  <url>
+    <loc>https://happyhome1981.onrender.com/products</loc>
+    <priority>0.9</priority>
+    <changefreq>daily</changefreq>
+  </url>
+  <url>
+    <loc>https://happyhome1981.onrender.com/categories</loc>
+    <priority>0.8</priority>
+    <changefreq>daily</changefreq>
+  </url>
+  <url>
+    <loc>https://happyhome1981.onrender.com/about</loc>
+    <priority>0.5</priority>
+    <changefreq>daily</changefreq>
+  </url>
+  <url>
+    <loc>https://happyhome1981.onrender.com/contact</loc>
+    <priority>0.5</priority>
+    <changefreq>daily</changefreq>
+  </url>
+</urlset>`;
+
+let lastKnownGoodSitemapXml: string = FALLBACK_MINIMAL_SITEMAP;
+let lastKnownGoodSitemapTime = 0;
+const SITEMAP_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+let isSitemapGenerating = false;
+
+// ============================================================================
+// 2. HEALTH ENDPOINT (Ultra-fast, completely independent from Firebase)
+// ============================================================================
+app.get('/health', (req, res) => {
+  res.status(200)
+     .setHeader('Content-Type', 'application/json; charset=utf-8')
+     .setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+     .json({ ok: true });
+});
+
+// ============================================================================
+// 3. ROBOTS.TXT (Static, deterministic, instant response for Googlebot)
+// ============================================================================
+app.get('/robots.txt', (req, res) => {
+  res.status(200)
+     .setHeader('Content-Type', 'text/plain; charset=utf-8')
+     .setHeader('Cache-Control', 'public, max-age=86400')
+     .setHeader('X-Content-Type-Options', 'nosniff')
+     .send(STATIC_ROBOTS_TXT);
+});
+
+// ============================================================================
+// 4. SITEMAP.XML (Always returns valid XML 200, never blocks or fails on cold start)
+// ============================================================================
+app.get('/sitemap.xml', async (req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  const now = Date.now();
+  // Return cached sitemap if still fresh
+  if (lastKnownGoodSitemapTime > 0 && (now - lastKnownGoodSitemapTime < SITEMAP_CACHE_TTL_MS)) {
+    return res.status(200).send(lastKnownGoodSitemapXml);
+  }
+
+  // If already generating concurrently, return last known good immediately to prevent cold-start bottlenecks
+  if (isSitemapGenerating) {
+    return res.status(200).send(lastKnownGoodSitemapXml);
+  }
+
+  const host = req.get('host') || '';
+  const isLocal = !host || host.includes('localhost') || host.includes('127.0.0.1');
+  const baseUrl = isLocal 
+    ? 'https://happyhome1981.onrender.com'
+    : `${req.headers['x-forwarded-proto'] || req.protocol || 'https'}://${host}`;
+
+  try {
+    isSitemapGenerating = true;
+    
+    // Strict 2.5 second timeout so sitemap NEVER stalls or hangs on Firestore cold start
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Sitemap database fetch timeout')), 2500)
+    );
+
+    const fetchPromise = Promise.all([
+      getServerProducts().catch(() => []),
+      getServerCategories().catch(() => [])
+    ]);
+
+    const [products, categories] = await Promise.race([fetchPromise, timeoutPromise]);
+
+    const urls = [
+      { loc: `${baseUrl}/`, priority: '1.0' },
+      { loc: `${baseUrl}/products`, priority: '0.9' },
+      { loc: `${baseUrl}/categories`, priority: '0.8' },
+      { loc: `${baseUrl}/about`, priority: '0.5' },
+      { loc: `${baseUrl}/contact`, priority: '0.5' }
+    ];
+
+    if (Array.isArray(products)) {
+      products.forEach(p => {
+        const slug = getProductCanonicalSlugServer(p);
+        if (slug) urls.push({ loc: `${baseUrl}/product/${slug}`, priority: '0.7' });
+      });
+    }
+
+    if (Array.isArray(categories)) {
+      categories.forEach(c => {
+        const slug = getCategoryCanonicalSlugServer(c);
+        if (slug) urls.push({ loc: `${baseUrl}/category/${slug}`, priority: '0.6' });
+      });
+    }
+
+    const generatedXml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>
+    <priority>${u.priority}</priority>
+    <changefreq>daily</changefreq>
+  </url>`).join('\n')}
+</urlset>`;
+
+    if (generatedXml.includes('<urlset')) {
+      lastKnownGoodSitemapXml = generatedXml;
+      lastKnownGoodSitemapTime = now;
+      return res.status(200).send(generatedXml);
+    }
+  } catch (err) {
+    console.warn('[Sitemap] Database fetch unavailable or timed out. Serving last-known-good sitemap:', err);
+  } finally {
+    isSitemapGenerating = false;
+  }
+
+  // Always return 200 with last-known-good sitemap (or minimal valid sitemap)
+  return res.status(200).send(lastKnownGoodSitemapXml);
+});
+
+// ============================================================================
+// 5. GOOGLE VERIFICATION FILES (Zero external dependencies, always returns 200)
+// ============================================================================
+app.get('/googlec2b5e575b2168828.html', (req, res) => {
+  res.status(200)
+     .setHeader('Content-Type', 'text/html; charset=utf-8')
+     .send('google-site-verification: googlec2b5e575b2168828.html');
+});
+
+app.get('/google:id([a-zA-Z0-9]+).html', (req, res) => {
+  res.status(200)
+     .setHeader('Content-Type', 'text/html; charset=utf-8')
+     .send(`google-site-verification: google${req.params.id}.html`);
+});
+
+// ============================================================================
+// 6. BODY PARSING & API / APPLICATION MIDDLEWARE
+// ============================================================================
+
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -762,71 +938,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 
 // ==========================================
-// PUBLIC BULLETPROOF ROUTES (SEO & Health)
+// CACHE & BACKGROUND SYNC
 // ==========================================
-app.get('/health', (req, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString() });
-});
-
-app.get('/googlec2b5e575b2168828.html', (req, res) => {
-  res.set('Content-Type', 'text/html');
-  res.send('google-site-verification: googlec2b5e575b2168828.html');
-});
-
-app.get('/robots.txt', (req, res) => {
-  res.set('Content-Type', 'text/plain');
-  res.send(`User-agent: *
-Allow: /
-Disallow: /admin/
-Disallow: /api/
-
-Sitemap: https://${req.get('host') || 'happyhome1981.onrender.com'}/sitemap.xml`);
-});
-
-app.get('/sitemap.xml', async (req, res) => {
-  const host = req.get('host') || 'happyhome1981.onrender.com';
-  const protocol = req.protocol || 'https';
-  const baseUrl = `${protocol}://${host}`;
-  
-  let urls = [
-    { loc: baseUrl, priority: '1.0' },
-    { loc: `${baseUrl}/products`, priority: '0.9' },
-    { loc: `${baseUrl}/categories`, priority: '0.8' },
-    { loc: `${baseUrl}/about`, priority: '0.5' },
-    { loc: `${baseUrl}/contact`, priority: '0.5' }
-  ];
-
-  try {
-    const [products, categories] = await Promise.all([
-      getServerProducts(),
-      getServerCategories()
-    ]);
-
-    products.forEach(p => {
-      const slug = getProductCanonicalSlugServer(p);
-      if (slug) urls.push({ loc: `${baseUrl}/product/${slug}`, priority: '0.7' });
-    });
-
-    categories.forEach(c => {
-      const slug = getCategoryCanonicalSlugServer(c);
-      if (slug) urls.push({ loc: `${baseUrl}/category/${slug}`, priority: '0.6' });
-    });
-  } catch (err) {
-    console.error('[Sitemap] Failed to fetch dynamic URLs:', err);
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.map(u => `  <url>
-    <loc>${u.loc}</loc>
-    <priority>${u.priority}</priority>
-    <changefreq>daily</changefreq>
-  </url>`).join('\n')}
-</urlset>`;
-
-  res.set('Content-Type', 'application/xml');
-  res.send(xml);
-});
 
 // ==========================================
 const CACHE_TTL_GENERAL = 10 * 60 * 1000; // 10 minutes

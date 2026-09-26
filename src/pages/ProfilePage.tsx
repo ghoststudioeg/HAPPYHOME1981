@@ -61,8 +61,12 @@ import {
   Flame,
   TrendingDown,
   PackageCheck,
-  Megaphone
+  Megaphone,
+  Folder,
+  FolderPlus,
+  ArrowRightLeft
 } from 'lucide-react';
+import { MoveToGroupModal } from '../components/wishlist/WishlistModals';
 
 interface ProfilePageProps {
   navigate: (path: string) => void;
@@ -109,6 +113,9 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
     updateProfileData,
     signOut,
     favoritesList,
+    wishlistGroups,
+    createWishlistGroup,
+    moveFavoriteToGroup,
     toggleFavorite,
     addToCart
   } = useAuth();
@@ -117,6 +124,12 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
 
   // Active Tab: exact My Account navigation items requested
   const [activeTab, setActiveTab] = useState<ProfileTab>('profile');
+  const [profileFavGroup, setProfileFavGroup] = useState<string>('all');
+  const [moveTargetProduct, setMoveTargetProduct] = useState<{
+    id: string;
+    name: string;
+    currentGroup: string;
+  } | null>(null);
 
   // Modal State
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -1180,10 +1193,58 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
           {/* 2. TAB: FAVORITES ("المفضلة") */}
           {activeTab === 'favorites' && (
             <div className="space-y-6">
-              <div className="border-r-3 border-[#D4AF37] pr-3">
-                <h2 className="text-lg font-black text-[var(--text-primary)]">قائمة المفضلة الشخصية</h2>
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">المنتجات التي قمت بحفظها في رغباتك لمراجعتها وطلبها لاحقاً.</p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-r-3 border-[#D4AF37] pr-3">
+                <div>
+                  <h2 className="text-lg font-black text-[var(--text-primary)]">قائمة المفضلة والمجموعات</h2>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">المنتجات التي قمت بحفظها في رغباتك منظمة في مجموعات مخصصة.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/favorites')}
+                  className="self-start sm:self-auto text-xs font-bold text-[#D4AF37] hover:underline flex items-center gap-1.5"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span>إدارة المجموعات بالكامل</span>
+                </button>
               </div>
+
+              {/* Group Filter Pills */}
+              {favoritesList.length > 0 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                  <button
+                    type="button"
+                    onClick={() => setProfileFavGroup('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer shrink-0 ${
+                      profileFavGroup === 'all'
+                        ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
+                        : 'glass-panel text-[var(--text-secondary)] hover:text-white border-[var(--border)]'
+                    }`}
+                  >
+                    جميع الرغبات ({favoritesList.length})
+                  </button>
+                  {wishlistGroups.map((group) => {
+                    const count = favoritesList.filter(
+                      (f) => (f.groupName || 'المفضلة العامة') === group
+                    ).length;
+                    return (
+                      <button
+                        key={group}
+                        type="button"
+                        onClick={() => setProfileFavGroup(group)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                          profileFavGroup === group
+                            ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
+                            : 'glass-panel text-[var(--text-secondary)] hover:text-white border-[var(--border)]'
+                        }`}
+                      >
+                        <Folder className="w-3 h-3" />
+                        <span>{group}</span>
+                        <span className="text-[10px] opacity-75">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {favoritesList.length === 0 ? (
                 <div className="p-12 text-center text-[var(--text-secondary)] space-y-4 glass-panel rounded-3xl border border-[var(--border)]">
@@ -1201,7 +1262,9 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {favoritesList.map((item) => (
+                  {favoritesList
+                    .filter((item) => profileFavGroup === 'all' || (item.groupName || 'المفضلة العامة') === profileFavGroup)
+                    .map((item) => (
                     <div
                       key={item.id}
                       className="glass-panel rounded-2xl border border-[var(--border)] overflow-hidden transition-all duration-300 hover:border-[#D4AF37]/40 flex flex-col justify-between"
@@ -1232,7 +1295,25 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
 
                       <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
                         <div>
-                          <span className="text-[10px] text-[#E0B84A] font-bold block mb-1">{item.categoryName || 'قسم متميز'}</span>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] text-[#E0B84A] font-bold block">{item.categoryName || 'قسم متميز'}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMoveTargetProduct({
+                                  id: item.productId,
+                                  name: item.productName,
+                                  currentGroup: item.groupName || 'المفضلة العامة',
+                                })
+                              }
+                              className="text-[10px] text-[var(--text-muted)] hover:text-[#D4AF37] flex items-center gap-1 bg-[var(--surface)] px-2 py-0.5 rounded-md border border-[var(--border)] transition-colors"
+                              title="نقل لمجموعة أخرى"
+                            >
+                              <Folder className="w-2.5 h-2.5 text-[#D4AF37]" />
+                              <span className="truncate max-w-[80px]">{item.groupName || 'المفضلة العامة'}</span>
+                              <ArrowRightLeft className="w-2.5 h-2.5 opacity-60" />
+                            </button>
+                          </div>
                           <h3 className="text-xs sm:text-sm font-bold text-[var(--text-primary)] line-clamp-1 hover:text-[#E0B84A] cursor-pointer" onClick={() => navigate(`/product/${item.slug}`)}>
                             {item.productName}
                           </h3>
@@ -1268,6 +1349,18 @@ export function ProfilePage({ navigate, settings }: ProfilePageProps) {
                   ))}
                 </div>
               )}
+
+              {/* Move to group modal inside ProfilePage */}
+              <MoveToGroupModal
+                isOpen={!!moveTargetProduct}
+                onClose={() => setMoveTargetProduct(null)}
+                productId={moveTargetProduct?.id || ''}
+                productName={moveTargetProduct?.name || ''}
+                currentGroup={moveTargetProduct?.currentGroup || 'المفضلة العامة'}
+                groups={wishlistGroups}
+                onMove={moveFavoriteToGroup}
+                onCreateGroup={createWishlistGroup}
+              />
             </div>
           )}
 

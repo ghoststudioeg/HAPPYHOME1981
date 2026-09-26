@@ -17,8 +17,13 @@ interface AuthContextType {
   loading: boolean;
   favoritesList: UserFavoriteItem[];
   favoriteIds: Set<string>;
+  wishlistGroups: string[];
+  createWishlistGroup: (name: string) => Promise<boolean>;
+  renameWishlistGroup: (oldName: string, newName: string) => Promise<boolean>;
+  deleteWishlistGroup: (name: string) => Promise<boolean>;
+  moveFavoriteToGroup: (productId: string, targetGroup: string) => Promise<void>;
   isFavorite: (productId: string) => boolean;
-  toggleFavorite: (product: Product) => Promise<boolean>;
+  toggleFavorite: (product: Product, groupName?: string) => Promise<boolean>;
   updateProfileData: (data: { displayName?: string; phone?: string; address?: string; photoURL?: string }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -49,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [resolvedProducts, setResolvedProducts] = useState<Product[]>([]);
   const [loginPromptOpen, setLoginPromptOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [wishlistGroups, setWishlistGroups] = useState<string[]>(['المفضلة العامة', 'أدوات المطبخ', 'هدايا للمستقبل']);
 
   const triggerToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -163,6 +169,136 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return new Set(favoritesList.map((f) => f.productId));
   }, [favoritesList]);
 
+  // Sync groups with localStorage and existing item groups
+  useEffect(() => {
+    const defaultGroups = ['المفضلة العامة', 'أدوات المطبخ', 'هدايا للمستقبل'];
+    if (!user) {
+      setWishlistGroups(defaultGroups);
+      return;
+    }
+    const storageKey = `happyhome_wishlist_groups_${user.uid}`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      let groups: string[] = stored ? JSON.parse(stored) : [...defaultGroups];
+
+      // Merge any existing item groups
+      const itemGroups = favoritesList
+        .map((f) => f.groupName)
+        .filter((g): g is string => !!g && g.trim().length > 0);
+
+      itemGroups.forEach((g) => {
+        if (!groups.includes(g)) {
+          groups.push(g);
+        }
+      });
+      if (!groups.includes('المفضلة العامة')) {
+        groups.unshift('المفضلة العامة');
+      }
+      setWishlistGroups(groups);
+      localStorage.setItem(storageKey, JSON.stringify(groups));
+    } catch {
+      setWishlistGroups(defaultGroups);
+    }
+  }, [user?.uid, favoritesList]);
+
+  const saveGroups = useCallback((groups: string[]) => {
+    setWishlistGroups(groups);
+    if (user) {
+      try {
+        localStorage.setItem(`happyhome_wishlist_groups_${user.uid}`, JSON.stringify(groups));
+      } catch (e) {
+        console.warn('Failed to save wishlist groups to localStorage:', e);
+      }
+    }
+  }, [user]);
+
+  const createWishlistGroup = useCallback(async (name: string): Promise<boolean> => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      triggerToast('يرجى كتابة اسم المجموعة.');
+      return false;
+    }
+    if (wishlistGroups.includes(trimmed)) {
+      triggerToast('هذه المجموعة موجودة بالفعل.');
+      return false;
+    }
+    const updated = [...wishlistGroups, trimmed];
+    saveGroups(updated);
+    triggerToast(`تم إنشاء مجموعة "${trimmed}" بنجاح.`);
+    return true;
+  }, [wishlistGroups, saveGroups, triggerToast]);
+
+  const renameWishlistGroup = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+    const trimmedNew = newName.trim();
+    if (!trimmedNew) {
+      triggerToast('يرجى كتابة اسم المجموعة الجديد.');
+      return false;
+    }
+    if (trimmedNew === oldName) return true;
+    if (wishlistGroups.includes(trimmedNew)) {
+      triggerToast('يوجد مجموعة أخرى بهذا الاسم.');
+      return false;
+    }
+
+    const updated = wishlistGroups.map((g) => (g === oldName ? trimmedNew : g));
+    saveGroups(updated);
+
+    // Update items locally & in firestore
+    setFavoritesList((prev) =>
+      prev.map((item) => (item.groupName === oldName ? { ...item, groupName: trimmedNew } : item))
+    );
+    if (user) {
+      const itemsToUpdate = favoritesList.filter((item) => item.groupName === oldName);
+      for (const item of itemsToUpdate) {
+        userService.updateFavoriteGroup(user.uid, item.productId, trimmedNew).catch(console.error);
+      }
+    }
+    triggerToast(`تم تعديل اسم المجموعة إلى "${trimmedNew}".`);
+    return true;
+  }, [wishlistGroups, saveGroups, favoritesList, user, triggerToast]);
+
+  const deleteWishlistGroup = useCallback(async (groupName: string): Promise<boolean> => {
+    if (groupName === 'المفضلة العامة') {
+      triggerToast('لا يمكن حذف المجموعة الافتراضية.');
+      return false;
+    }
+
+    const updated = wishlistGroups.filter((g) => g !== groupName);
+    saveGroups(updated);
+
+    // Move items in that group to 'المفضلة العامة'
+    setFavoritesList((prev) =>
+      prev.map((item) => (item.groupName === groupName ? { ...item, groupName: 'المفضلة العامة' } : item))
+    );
+    if (user) {
+      const itemsToMove = favoritesList.filter((item) => item.groupName === groupName);
+      for (const item of itemsToMove) {
+        userService.updateFavoriteGroup(user.uid, item.productId, 'المفضلة العامة').catch(console.error);
+      }
+    }
+    triggerToast(`تم حذف المجموعة "${groupName}" ونقل منتجاتها إلى المفضلة العامة.`);
+    return true;
+  }, [wishlistGroups, saveGroups, favoritesList, user, triggerToast]);
+
+  const moveFavoriteToGroup = useCallback(async (productId: string, targetGroup: string): Promise<void> => {
+    const cleanGroup = targetGroup.trim() || 'المفضلة العامة';
+    setFavoritesList((prev) =>
+      prev.map((item) => (item.productId === productId ? { ...item, groupName: cleanGroup } : item))
+    );
+    if (!wishlistGroups.includes(cleanGroup)) {
+      saveGroups([...wishlistGroups, cleanGroup]);
+    }
+    if (user) {
+      try {
+        await userService.updateFavoriteGroup(user.uid, productId, cleanGroup);
+        triggerToast(`تم نقل المنتج إلى "${cleanGroup}".`);
+      } catch (err) {
+        console.error('Failed to move favorite to group:', err);
+        triggerToast('تعذر نقل المنتج، يرجى المحاولة ثانية.');
+      }
+    }
+  }, [wishlistGroups, saveGroups, user, triggerToast]);
+
   const isFavorite = useCallback(
     (productId: string) => {
       if (!productId) return false;
@@ -175,7 +311,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const closeLoginPrompt = useCallback(() => setLoginPromptOpen(false), []);
 
   const toggleFavorite = useCallback(
-    async (product: Product): Promise<boolean> => {
+    async (product: Product, groupName: string = 'المفضلة العامة'): Promise<boolean> => {
       if (!product || !product.id) return false;
 
       // Guest check: prompt login
@@ -203,6 +339,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return true;
         }
       } else {
+        const cleanGroup = groupName?.trim() || 'المفضلة العامة';
         const newItem: UserFavoriteItem = {
           id: product.id,
           productId: product.id,
@@ -212,11 +349,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           oldPrice: product.oldPrice,
           categoryName: product.categoryName,
           slug: product.slug,
-          addedAt: new Date().toISOString()
+          addedAt: new Date().toISOString(),
+          groupName: cleanGroup
         };
         setFavoritesList((prev) => [newItem, ...prev]);
         try {
-          await userService.addFavorite(user.uid, product);
+          await userService.addFavorite(user.uid, product, cleanGroup);
           analyticsService.trackEvent('favorite_added', { 
             productId: product.id, 
             categoryId: product.categoryId,
@@ -458,6 +596,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       favoritesList,
       favoriteIds,
+      wishlistGroups,
+      createWishlistGroup,
+      renameWishlistGroup,
+      deleteWishlistGroup,
+      moveFavoriteToGroup,
       isFavorite,
       toggleFavorite,
       updateProfileData,
@@ -486,6 +629,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       favoritesList,
       favoriteIds,
+      wishlistGroups,
+      createWishlistGroup,
+      renameWishlistGroup,
+      deleteWishlistGroup,
+      moveFavoriteToGroup,
       isFavorite,
       toggleFavorite,
       updateProfileData,

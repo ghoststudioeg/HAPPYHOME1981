@@ -43,12 +43,14 @@ import {
   Heart,
   ShoppingCart,
   Star,
+  Folder,
   ShieldCheck,
   Truck,
   RotateCcw,
   Info,
   Sparkles
 } from 'lucide-react';
+import { MoveToGroupModal } from '../components/wishlist/WishlistModals';
 import { useAuth } from '../lib/authContext';
 import { analyticsService } from '../lib/data/analyticsService';
 import { SEO } from '../components/SEO';
@@ -91,7 +93,16 @@ const MOBILE_SPEC_CONFIG: SpecItemConfig[] = [
 ];
 
 export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
-  const { user, isFavorite, toggleFavorite, addToCart } = useAuth();
+  const {
+    user,
+    isFavorite,
+    toggleFavorite,
+    addToCart,
+    favoritesList,
+    wishlistGroups,
+    createWishlistGroup,
+    moveFavoriteToGroup
+  } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [resolvedCategory, setResolvedCategory] = useState<Category | null>(null);
   const [categoryStatus, setCategoryStatus] = useState<'loading' | 'found' | 'missing' | 'none'>('loading');
@@ -105,6 +116,7 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
 
   // Comparison Modal State
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
@@ -908,17 +920,31 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
                 </button>
 
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-                  <button
-                    onClick={() => toggleFavorite(product)}
-                    className={`py-3 sm:py-3.5 px-3 sm:px-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-bold text-xs active:scale-95 cursor-pointer ${
-                      favorited 
-                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-500' 
-                        : 'bg-[var(--surface)] border-[var(--border)] hover:border-[#D4AF37]/50 text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    <Heart className={`w-4 h-4 ${favorited ? 'fill-rose-500 text-rose-500' : ''}`} />
-                    <span>{favorited ? 'في المفضلة' : 'المفضلة'}</span>
-                  </button>
+                  <div className="relative flex">
+                    <button
+                      onClick={() => toggleFavorite(product)}
+                      className={`flex-1 py-3 sm:py-3.5 px-3 sm:px-4 ${
+                        favorited ? 'rounded-r-2xl border-r border-y' : 'rounded-2xl border'
+                      } transition-all flex items-center justify-center gap-2 font-bold text-xs active:scale-95 cursor-pointer ${
+                        favorited 
+                          ? 'bg-rose-500/10 border-rose-500/30 text-rose-500' 
+                          : 'bg-[var(--surface)] border-[var(--border)] hover:border-[#D4AF37]/50 text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      <Heart className={`w-4 h-4 ${favorited ? 'fill-rose-500 text-rose-500' : ''}`} />
+                      <span>{favorited ? 'في المفضلة' : 'المفضلة'}</span>
+                    </button>
+                    {favorited && (
+                      <button
+                        type="button"
+                        onClick={() => setShowGroupModal(true)}
+                        title="تغيير المجموعة أو نقل المنتج"
+                        className="px-3 rounded-l-2xl border-l border-y border-rose-500/30 bg-rose-500/10 text-rose-400 hover:text-white hover:bg-rose-500/30 transition-colors flex items-center justify-center cursor-pointer"
+                      >
+                        <Folder className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
 
                   <button
                     onClick={() => handleOpenComparison()}
@@ -1125,6 +1151,21 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
             </div>
           </details>
         </div>
+      )}
+      {/* Move to Wishlist Group Modal */}
+      {showGroupModal && product && (
+        <MoveToGroupModal
+          isOpen={showGroupModal}
+          onClose={() => setShowGroupModal(false)}
+          productId={product.id}
+          productName={product.name}
+          currentGroup={
+            favoritesList.find((f) => f.productId === product.id)?.groupName || 'المفضلة العامة'
+          }
+          groups={wishlistGroups}
+          onMove={moveFavoriteToGroup}
+          onCreateGroup={createWishlistGroup}
+        />
       )}
     </div>
   );

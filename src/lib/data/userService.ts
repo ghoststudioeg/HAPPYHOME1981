@@ -205,7 +205,8 @@ export const userService = {
           oldPrice: data.oldPrice ? Number(data.oldPrice) : undefined,
           categoryName: data.categoryName || '',
           slug: data.slug || d.id,
-          addedAt: data.addedAt || ''
+          addedAt: data.addedAt || '',
+          groupName: data.groupName || 'المفضلة العامة'
         });
       });
       // Sort newest first
@@ -217,11 +218,12 @@ export const userService = {
   },
 
   /**
-   * Add a product to customer favorites
+   * Add a product to customer favorites (with optional custom group)
    */
-  async addFavorite(uid: string, product: Product): Promise<void> {
+  async addFavorite(uid: string, product: Product, groupName: string = 'المفضلة العامة'): Promise<void> {
     if (!db || !uid || !product?.id) throw new Error('بيانات المنتج غير صالحة.');
 
+    const cleanGroup = groupName?.trim() || 'المفضلة العامة';
     const favDocRef = doc(db, 'users', uid, 'favorites', product.id);
     const item: Record<string, any> = {
       id: product.id,
@@ -231,7 +233,8 @@ export const userService = {
       price: product.price || 0,
       categoryName: product.categoryName || '',
       slug: product.slug || product.id,
-      addedAt: new Date().toISOString()
+      addedAt: new Date().toISOString(),
+      groupName: cleanGroup
     };
 
     if (product.oldPrice !== undefined && product.oldPrice !== null) {
@@ -240,6 +243,16 @@ export const userService = {
 
     const sanitized = sanitizeForFirestore(item);
     await setDoc(favDocRef, sanitized, { merge: true });
+  },
+
+  /**
+   * Update favorite item's group
+   */
+  async updateFavoriteGroup(uid: string, productId: string, groupName: string): Promise<void> {
+    if (!db || !uid || !productId) return;
+    const cleanGroup = groupName?.trim() || 'المفضلة العامة';
+    const favDocRef = doc(db, 'users', uid, 'favorites', productId);
+    await setDoc(favDocRef, { groupName: cleanGroup }, { merge: true });
   },
 
   /**
