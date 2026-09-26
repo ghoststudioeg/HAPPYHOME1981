@@ -74,7 +74,7 @@ const authorizeAdmin = (req: any, res: any, next: any) => {
 };
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // ============================================================================
 // CONSTANTS & LAST-KNOWN-GOOD CACHES FOR STATIC SEO / HEALTH ENDPOINTS
@@ -1277,10 +1277,22 @@ app.use('/api', (err: any, req: any, res: any, next: any) => {
 
 async function startServer() {
   console.log('[Server] Starting server...');
-  console.log('[Server] NODE_ENV:', process.env.NODE_ENV);
+  console.log('[Server] Initial NODE_ENV:', process.env.NODE_ENV);
+
+  // Automatically detect production if running from bundled cjs or dist directory
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    __filename.endsWith('.cjs') ||
+    process.argv[1]?.includes('dist') ||
+    !fs.existsSync(path.join(process.cwd(), 'vite.config.ts'));
+
+  if (isProduction && process.env.NODE_ENV !== 'production') {
+    process.env.NODE_ENV = 'production';
+  }
+  console.log('[Server] Operating Mode:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
     console.log('[Server] Initializing Vite in middleware mode...');
     const vite = await createViteServer({
       server: {
@@ -1291,22 +1303,19 @@ async function startServer() {
     });
     console.log('[Server] Vite initialized.');
     
-    // Inject OG tags even in dev mode if possible (though scrapers won't hit dev)
+    // Inject OG tags even in dev mode if possible
     app.use(async (req, res, next) => {
-      if (req.method !== 'GET') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
         return next();
       }
       if (
         req.path.startsWith('/api/') || 
-        req.path.includes('.') || 
+        /\.[a-zA-Z0-9]{2,5}$/.test(req.path) ||
         req.path.startsWith('/@vite') || 
         req.path.startsWith('/@react-refresh') || 
         req.path.startsWith('/node_modules/') || 
         req.path.startsWith('/src/')
       ) {
-        return next();
-      }
-      if (!req.headers.accept?.includes('text/html')) {
         return next();
       }
       
@@ -1316,8 +1325,13 @@ async function startServer() {
         
         const metadata = await getMetadataForPath(req.path, req);
         const html = injectMetadata(template, metadata, req);
-        const statusCode = metadata.is404 ? 404 : 200;
-        res.status(statusCode).set({ 'Content-Type': 'text/html' }).end(html);
+        const statusCode = (metadata?.is404 && (req.path.startsWith('/product/') || req.path.startsWith('/category/'))) ? 404 : 200;
+        
+        res.status(statusCode).setHeader('Content-Type', 'text/html; charset=utf-8');
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
+        res.end(html);
       } catch (e) {
         vite.ssrFixStacktrace(e as Error);
         next(e);
@@ -1338,37 +1352,98 @@ async function startServer() {
 
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // Locate the actual directory containing built frontend assets and index.html
+    const candidateDistDirs = [
+      path.join(process.cwd(), 'dist'),
+      __dirname,
+      path.join(__dirname, '..', 'dist'),
+      path.resolve('.'),
+      path.resolve('dist'),
+    ];
+
+    let distPath = path.join(process.cwd(), 'dist');
+    for (const cand of candidateDistDirs) {
+      if (fs.existsSync(path.join(cand, 'index.html'))) {
+        distPath = cand;
+        break;
+      }
+    }
+    const indexHtmlPath = path.join(distPath, 'index.html');
+    console.log(`[Server] Production distPath resolved to: ${distPath}`);
+    console.log(`[Server] index.html exists: ${fs.existsSync(indexHtmlPath)} (${indexHtmlPath})`);
+
+    // 1. Serve static assets (JS, CSS, images, SVGs, favicon, etc.)
     app.use(express.static(distPath, { 
-      index: false,
-      maxAge: '7d', // Cache assets for 7 days
+      index: false, // SPA fallback handles all HTML document routes
+      maxAge: '7d', // Cache immutable static assets for 7 days
       immutable: true,
-      setHeaders: (res, path) => {
-        if (path.endsWith('.html')) {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
           res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
         }
       }
     }));
     
+    // 2. SPA Fallback: Serve index.html for all page routes:
+    //    /, /products, /categories, /category/:slug, /product/:slug, /about, /contact, /admin, etc.
     app.get('*', async (req, res, next) => {
-      if (req.method !== 'GET') {
-        return next();
-      }
-      if (req.path.startsWith('/api/') || req.path.includes('.')) {
-        return next();
-      }
-      if (!req.headers.accept?.includes('text/html')) {
+      // Only handle GET and HEAD requests
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
         return next();
       }
 
+      // Ignore API endpoints or missing asset requests with file extensions (e.g. .js, .css, .png)
+      if (req.path.startsWith('/api/') || /\.[a-zA-Z0-9]{2,5}$/.test(req.path)) {
+        return next();
+      }
+
+      let template = '';
       try {
-        const template = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
-        const metadata = await getMetadataForPath(req.path, req);
-        const html = injectMetadata(template, metadata, req);
-        const statusCode = metadata.is404 ? 404 : 200;
-        res.status(statusCode).set({ 'Content-Type': 'text/html' }).end(html);
+        template = fs.readFileSync(indexHtmlPath, 'utf-8');
+      } catch (readErr) {
+        console.error('[Server] Failed to read dist/index.html:', readErr);
+        try {
+          template = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
+        } catch {
+          return res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8').send('<h1>500 - Frontend template not found</h1>');
+        }
+      }
+
+      try {
+        // Fast 1.5s timeout for metadata generation so page response is never blocked if DB is slow
+        const metaPromise = getMetadataForPath(req.path, req);
+        const timeoutPromise = new Promise<any>((resolve) => setTimeout(() => resolve(null), 1500));
+        const metadata = await Promise.race([metaPromise, timeoutPromise]);
+
+        let html = template;
+        let statusCode = 200;
+
+        if (metadata) {
+          html = injectMetadata(template, metadata, req);
+          // Only return 404 status if specifically requested for a confirmed missing single item
+          if (metadata.is404 && (req.path.startsWith('/product/') || req.path.startsWith('/category/'))) {
+            statusCode = 404;
+          }
+        }
+
+        res.status(statusCode)
+           .setHeader('Content-Type', 'text/html; charset=utf-8')
+           .setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
+        return res.send(html);
       } catch (err) {
-        res.status(500).end('Internal Server Error');
+        console.warn('[Server] Error during metadata injection, serving raw index.html:', err);
+        res.status(200)
+           .setHeader('Content-Type', 'text/html; charset=utf-8')
+           .setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
+        return res.send(template);
       }
     });
   }
