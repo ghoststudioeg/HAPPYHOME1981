@@ -13,6 +13,7 @@ import {
 import { productService } from './productService';
 import { categoryService } from './categoryService';
 import { settingsService } from './settingsService';
+import { DEFAULT_STORE_SETTINGS } from './seedData';
 import { homepageService, DEFAULT_HOMEPAGE_SETTINGS } from './homepageService';
 import { promotionService } from './promotionService';
 
@@ -37,29 +38,33 @@ export interface HomeCatalogData {
 
 export const catalogService = {
   async getHomeData(): Promise<HomeCatalogData> {
-    const [
-      settings,
-      homepageSettings,
-      categories,
-      newArrivals,
-      featuredProducts,
-      limitedOffers,
-      comingSoonItems,
-      heroBanners,
-      newsTickerItems,
-      activePromotions
-    ] = await Promise.all([
-      settingsService.getSettings(),
-      homepageService.getSettings(),
-      categoryService.getCategories(),
-      productService.getNewArrivals(8),
-      productService.getFeaturedProducts(12),
-      homepageService.getActiveOffers(),
-      homepageService.getActiveComingSoon(),
-      homepageService.getHomeBanners(),
-      homepageService.getActiveNews(),
-      promotionService.getActivePromotions().catch(() => [])
-    ]);
+    console.log('[BOOT 7] Product service requested (getHomeData)');
+    try {
+      const [
+        settings,
+        homepageSettings,
+        categories,
+        newArrivals,
+        featuredProducts,
+        limitedOffers,
+        comingSoonItems,
+        heroBanners,
+        newsTickerItems,
+        activePromotions
+      ] = await Promise.all([
+        settingsService.getSettings().catch(e => { console.error('settings failed', e); return DEFAULT_STORE_SETTINGS; }),
+        homepageService.getSettings().catch(e => { console.error('hp settings failed', e); return DEFAULT_HOMEPAGE_SETTINGS; }),
+        categoryService.getCategories().catch(e => { console.error('categories failed', e); return []; }),
+        productService.getNewArrivals(8).catch(e => { console.error('new arrivals failed', e); return []; }),
+        productService.getFeaturedProducts(12).catch(e => { console.error('featured failed', e); return []; }),
+        homepageService.getActiveOffers().catch(e => { console.error('offers failed', e); return []; }),
+        homepageService.getActiveComingSoon().catch(e => { console.error('coming soon failed', e); return []; }),
+        homepageService.getHomeBanners().catch(e => { console.error('banners failed', e); return []; }),
+        homepageService.getActiveNews().catch(e => { console.error('news failed', e); return []; }),
+        promotionService.getActivePromotions().catch(e => { console.error('promos failed', e); return []; })
+      ]);
+
+      console.log('[BOOT 8] Product service returned. Arrivals:', newArrivals.length);
 
     const showcaseTargetNames = ['شنط مدرسية', 'شنط سفر', 'إلكترونيات', 'أجهزة منزلية', 'أجهزة كهربائية'];
     const categoryShowcases: { category: Category; products: Product[] }[] = [];
@@ -83,21 +88,25 @@ export const catalogService = {
 
     const flashSalePromotions = (activePromotions || []).filter((p) => p.isFlashSale === true);
 
-    return {
-      settings,
-      homepageSettings,
-      categories: categories.filter(c => c.visibility),
-      newArrivals,
-      limitedOffers,
-      comingSoonItems,
-      heroBanners,
-      newsTickerItems,
-      allProducts: newArrivals, // Compatibility for now
-      featuredProducts,
-      activePromotions: activePromotions || [],
-      flashSalePromotions,
-      categoryShowcases
-    };
+      return {
+        settings,
+        homepageSettings,
+        categories: categories.filter(c => c.visibility),
+        newArrivals,
+        limitedOffers,
+        comingSoonItems,
+        heroBanners,
+        newsTickerItems,
+        allProducts: newArrivals, // Compatibility for now
+        featuredProducts,
+        activePromotions: activePromotions || [],
+        flashSalePromotions,
+        categoryShowcases
+      };
+    } catch (err) {
+      console.error('[DIAGNOSTIC] getHomeData FATAL ERROR:', err);
+      throw err;
+    }
   },
 
   async filterProducts(options: ProductFilterOptions = {}): Promise<Product[]> {

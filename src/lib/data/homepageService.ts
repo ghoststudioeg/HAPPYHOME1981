@@ -1,19 +1,5 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc
-} from 'firebase/firestore';
-import { db } from '../firebase';
-import { storageService } from './storageService';
-import { productService } from './productService';
+import { supabaseDb } from './supabaseDb';
 import { HomepageSettings, LimitedOffer, ComingSoonItem, HeroBanner, NewsTickerItem } from '../../types';
-import { sanitizeForFirestore } from '../firestoreUtils';
-import { notificationEngine } from '../notificationEngine';
 import { auditService } from './auditService';
 
 export const DEFAULT_HOMEPAGE_SETTINGS: HomepageSettings = {
@@ -30,22 +16,18 @@ export const DEFAULT_HOMEPAGE_SETTINGS: HomepageSettings = {
   heroSlideIntervalSeconds: 6
 };
 
-const SETTINGS_COLLECTION = 'homepageSettings';
-const SETTINGS_DOC_ID = 'main';
-const BANNERS_COLLECTION = 'homepageBanners';
-const TICKER_COLLECTION = 'newsTicker';
-const OFFERS_COLLECTION = 'limitedOffers';
-const COMING_SOON_COLLECTION = 'comingSoon';
+const BANNERS_COLLECTION = 'homepage_banners';
+const TICKER_COLLECTION = 'homepage_tickers';
+const OFFERS_COLLECTION = 'homepage_offers';
+const COMING_SOON_COLLECTION = 'homepage_coming_soon';
 
-// In-memory cache to prevent redundant Firestore reads on the public storefront
-let settingsCache: { data: HomepageSettings, timestamp: number } | null = null;
-let bannersCache: { data: HeroBanner[], timestamp: number } | null = null;
-let newsCache: { data: NewsTickerItem[], timestamp: number } | null = null;
-let offersCache: { data: LimitedOffer[], timestamp: number } | null = null;
-let comingSoonCache: { data: ComingSoonItem[], timestamp: number } | null = null;
+let settingsCache: { data: HomepageSettings; timestamp: number } | null = null;
+let bannersCache: { data: HeroBanner[]; timestamp: number } | null = null;
+let newsCache: { data: NewsTickerItem[]; timestamp: number } | null = null;
+let offersCache: { data: LimitedOffer[]; timestamp: number } | null = null;
+let comingSoonCache: { data: ComingSoonItem[]; timestamp: number } | null = null;
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const pendingRequests = new Map<string, Promise<any>>();
+const CACHE_TTL = 5 * 60 * 1000;
 
 export const homepageService = {
   clearCache() {
@@ -54,797 +36,181 @@ export const homepageService = {
     newsCache = null;
     offersCache = null;
     comingSoonCache = null;
-    pendingRequests.clear();
-    if (typeof window !== 'undefined') {
-      ['banners', 'offers', 'comingSoon'].forEach(type => {
-        fetch('/api/cache/clear', { 
-          method: 'POST', 
-          headers: {'Content-Type': 'application/json'}, 
-          body: JSON.stringify({type}) 
-        }).catch(()=>{});
-      });
-    }
   },
 
-  // -------------------------------------------------------------
-  // 1. Homepage General Settings
-  // -------------------------------------------------------------
   async getSettings(): Promise<HomepageSettings> {
-    if (!db) return DEFAULT_HOMEPAGE_SETTINGS;
-
-    if (settingsCache && (Date.now() - settingsCache.timestamp < CACHE_TTL)) {
+    const now = Date.now();
+    if (settingsCache && now - settingsCache.timestamp < CACHE_TTL) {
       return { ...settingsCache.data };
     }
-
-    if (pendingRequests.has('hp_settings')) return pendingRequests.get('hp_settings');
-
-    const fetchPromise = (async () => {
-      try {
-        const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
-        const snapshot = await getDoc(docRef);
-        let data = snapshot.exists() ? { ...DEFAULT_HOMEPAGE_SETTINGS, ...snapshot.data() } as HomepageSettings : DEFAULT_HOMEPAGE_SETTINGS;
-        settingsCache = { data, timestamp: Date.now() };
-        return data;
-      } catch (error) {
-        console.warn('Fallback to LKG hp settings:', error);
-        return settingsCache?.data || DEFAULT_HOMEPAGE_SETTINGS;
-      } finally {
-        pendingRequests.delete('hp_settings');
-      }
-    })();
-
-    pendingRequests.set('hp_settings', fetchPromise);
-    return fetchPromise;
+    try {
+      const doc = await supabaseDb.getDoc<HomepageSettings>('homepage_settings', 'main');
+      const settings = doc ? { ...DEFAULT_HOMEPAGE_SETTINGS, ...doc } : DEFAULT_HOMEPAGE_SETTINGS;
+      settingsCache = { data: settings, timestamp: now };
+      return settings;
+    } catch {
+      return DEFAULT_HOMEPAGE_SETTINGS;
+    }
   },
 
-  async updateSettings(settings: Partial<HomepageSettings>): Promise<void> {
-    const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
-    const sanitizedPayload = sanitizeForFirestore({
-      ...settings,
-      updatedAt: new Date().toISOString()
-    });
-    await setDoc(docRef, sanitizedPayload, { merge: true });
+  async updateSettings(updates: Partial<HomepageSettings>): Promise<void> {
+    const current = await this.getSettings();
+    const updated = { ...current, ...updates };
+    await supabaseDb.setDoc('homepage_settings', 'main', updated);
     this.clearCache();
+    await auditService.logAction('UPDATE', 'homepage_settings', 'main', updates);
   },
 
-  // -------------------------------------------------------------
-  // 2. Hero Banners
-  // -------------------------------------------------------------
-  async getAllBanners(): Promise<HeroBanner[]> {
-    if (!db) return [];
-    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-    
-    if (bannersCache && (Date.now() - bannersCache.timestamp < CACHE_TTL)) {
+  async getBanners(): Promise<HeroBanner[]> {
+    const now = Date.now();
+    if (bannersCache && now - bannersCache.timestamp < CACHE_TTL) {
       return [...bannersCache.data];
     }
-
-    if (pendingRequests.has('banners')) return pendingRequests.get('banners');
-    
-    const fetchPromise = (async () => {
-      try {
-        if (!isAdmin) {
-          try {
-            const res = await fetch('/api/cache/banners');
-            const contentType = res.headers.get('content-type') || '';
-            if (res.ok && contentType.includes('application/json')) {
-              const list = await res.json();
-              if (Array.isArray(list)) {
-                list.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
-                bannersCache = { data: [...list], timestamp: Date.now() };
-                return list;
-              }
-            }
-          } catch (fetchErr) {
-            console.warn('Failed to fetch banners from server cache:', fetchErr);
-          }
-        }
-        const colRef = collection(db, BANNERS_COLLECTION);
-        const snapshot = await getDocs(colRef);
-        const list: any[] = [];
-        snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
-        list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-        bannersCache = { data: list, timestamp: Date.now() };
-        return list;
-      } catch (error) {
-        if (bannersCache) return [...bannersCache.data];
-        return [];
-      } finally {
-        pendingRequests.delete('banners');
-      }
-    })();
-
-    pendingRequests.set('banners', fetchPromise);
-    return fetchPromise;
-  },
-
-  async getActiveBanners(): Promise<HeroBanner[]> {
-    const all = await this.getAllBanners();
-    const now = Date.now();
-
-    return all.filter((banner) => {
-      if (banner.isActive === false) return false;
-
-      // Optional start date (campaign or standard)
-      const startStr = banner.campaignStartDate || banner.startDate;
-      if (startStr) {
-        const start = new Date(startStr).getTime();
-        if (!isNaN(start) && now < start) return false;
-      }
-
-      // Optional end date (campaign or standard)
-      const endStr = banner.campaignEndDate || banner.endDate;
-      if (endStr) {
-        const end = new Date(endStr.includes('T') ? endStr : `${endStr}T23:59:59`).getTime();
-        if (!isNaN(end) && now > end) return false;
-      }
-
-      return true;
-    });
+    try {
+      const list = await supabaseDb.getCollection<HeroBanner>(BANNERS_COLLECTION);
+      list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      bannersCache = { data: list, timestamp: now };
+      return list;
+    } catch {
+      return [];
+    }
   },
 
   async getHomeBanners(): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => {
-      if (Array.isArray(b.placements) && b.placements.length > 0) {
-        return b.placements.includes('home_hero');
-      }
-      return b.showOnHome !== false;
-    });
+    return this.getBanners();
   },
 
-  async getHomePromoBanners(): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => Array.isArray(b.placements) && b.placements.includes('home_promo'));
+  async createBanner(banner: Omit<HeroBanner, 'id'>): Promise<string> {
+    const id = `banner_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const newBanner: HeroBanner = { ...banner, id };
+    await supabaseDb.setDoc(BANNERS_COLLECTION, id, newBanner);
+    this.clearCache();
+    return id;
   },
 
-  async getCatalogBanners(): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => {
-      if (Array.isArray(b.placements) && b.placements.length > 0) {
-        return b.placements.includes('catalog_page');
-      }
-      return b.showOnCatalog === true;
-    });
-  },
-
-  async getCategoryBanners(categoryId: string): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => {
-      if (Array.isArray(b.placements) && b.placements.length > 0) {
-        if (b.placements.includes('category_all')) return true;
-        if (b.placements.includes('category_specific')) {
-          return (
-            b.specificCategoryId === categoryId ||
-            (Array.isArray(b.categoryIds) && b.categoryIds.includes(categoryId))
-          );
-        }
-        return false;
-      }
-      return Array.isArray(b.categoryIds) && b.categoryIds.includes(categoryId);
-    });
-  },
-
-  async getProductBanners(productId: string): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => {
-      if (Array.isArray(b.placements) && b.placements.length > 0) {
-        if (b.placements.includes('product_all')) return true;
-        if (b.placements.includes('product_specific')) {
-          return (
-            b.specificProductId === productId ||
-            b.productId === productId ||
-            b.targetValue === productId
-          );
-        }
-        return false;
-      }
-      return false;
-    });
-  },
-
-  async getOffersBanners(): Promise<HeroBanner[]> {
-    const active = await this.getActiveBanners();
-    return active.filter((b) => Array.isArray(b.placements) && b.placements.includes('offers_page'));
-  },
-
-  async createBanner(bannerData: Omit<HeroBanner, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const colRef = collection(db, BANNERS_COLLECTION);
-      const sanitized = sanitizeForFirestore({
-        ...bannerData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      const docRef = await addDoc(colRef, sanitized);
-
-      // Invalidate cache
-      bannersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
-      }
-
-      try {
-        await auditService.recordAuditLog({
-          action: 'BANNER_CREATED',
-          entityType: 'banner',
-          entityId: docRef.id,
-          entityName: bannerData.title || 'بنر رئيسي جديد',
-          after: { title: bannerData.title }
-        });
-      } catch (e) {}
-
-      try {
-        await notificationEngine.fireStoreEvent({
-          eventType: 'HERO_BANNER_CHANGED',
-          payload: {
-            heroTitle: bannerData.title || 'إعلان سلايدر جديد',
-            bannerId: docRef.id
-          }
-        });
-      } catch (e) {}
-
-      return docRef.id;
-    } catch (error: any) {
-      console.error('Error creating banner:', error);
-      throw new Error(error?.message || 'تعذر إنشاء الإعلان.');
-    }
-  },
-
-  async updateBanner(id: string, bannerData: Partial<HeroBanner>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, BANNERS_COLLECTION, id);
-      const snap = await getDoc(docRef);
-      let oldUrls: string[] = [];
-      if (snap.exists()) {
-        const item = snap.data() as HeroBanner;
-        if (item.desktopImageUrl) oldUrls.push(item.desktopImageUrl);
-        if (item.mobileImageUrl) oldUrls.push(item.mobileImageUrl);
-        if (item.posterImageUrl) oldUrls.push(item.posterImageUrl);
-        if (item.mobilePosterImageUrl) oldUrls.push(item.mobilePosterImageUrl);
-        if (item.productImageUrl) oldUrls.push(item.productImageUrl);
-        if (item.backgroundImageUrl) oldUrls.push(item.backgroundImageUrl);
-      }
-
-      const sanitized = sanitizeForFirestore({
-        ...bannerData,
-        updatedAt: new Date().toISOString()
-      });
-      await updateDoc(docRef, sanitized);
-
-      // Invalidate cache
-      bannersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
-      }
-
-      try {
-        const bTitle = bannerData.title || (snap.exists() ? snap.data().title : id);
-        await auditService.recordAuditLog({
-          action: 'BANNER_EDITED',
-          entityType: 'banner',
-          entityId: id,
-          entityName: bTitle,
-          before: snap.exists() ? { title: snap.data().title } : null,
-          after: { title: bannerData.title || snap.data()?.title }
-        });
-      } catch (e) {}
-
-      if (oldUrls.length > 0) {
-        let newUrls: string[] = [];
-        if (bannerData.desktopImageUrl) newUrls.push(bannerData.desktopImageUrl);
-        if (bannerData.mobileImageUrl) newUrls.push(bannerData.mobileImageUrl);
-        if (bannerData.posterImageUrl) newUrls.push(bannerData.posterImageUrl);
-        if (bannerData.mobilePosterImageUrl) newUrls.push(bannerData.mobilePosterImageUrl);
-        if (bannerData.productImageUrl) newUrls.push(bannerData.productImageUrl);
-        if (bannerData.backgroundImageUrl) newUrls.push(bannerData.backgroundImageUrl);
-        
-        const imageFieldsUpdated =
-          'desktopImageUrl' in bannerData ||
-          'mobileImageUrl' in bannerData ||
-          'posterImageUrl' in bannerData ||
-          'mobilePosterImageUrl' in bannerData ||
-          'productImageUrl' in bannerData ||
-          'backgroundImageUrl' in bannerData;
-        if (imageFieldsUpdated) {
-          const removedUrls = oldUrls.filter(url => !newUrls.includes(url));
-          if (removedUrls.length > 0) {
-            await storageService.safeDeleteFiles(removedUrls);
-          }
-        }
-      }
-
-      try {
-        await notificationEngine.fireStoreEvent({
-          eventType: 'HERO_BANNER_CHANGED',
-          payload: {
-            heroTitle: bannerData.title || 'تحديث لافتة ترويجية',
-            bannerId: id
-          }
-        });
-      } catch (e) {}
-    } catch (error: any) {
-      console.error('Error updating banner:', error);
-      throw new Error(error?.message || 'تعذر تعديل الإعلان.');
-    }
+  async updateBanner(id: string, updates: Partial<HeroBanner>): Promise<void> {
+    await supabaseDb.updateDoc(BANNERS_COLLECTION, id, updates);
+    this.clearCache();
   },
 
   async deleteBanner(id: string): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, BANNERS_COLLECTION, id);
-      const snap = await getDoc(docRef);
-      let urlsToDelete: string[] = [];
-      
-      if (snap.exists()) {
-        const banner = snap.data() as HeroBanner;
-        if (banner.desktopImageUrl) urlsToDelete.push(banner.desktopImageUrl);
-        if (banner.mobileImageUrl) urlsToDelete.push(banner.mobileImageUrl);
-        if (banner.posterImageUrl) urlsToDelete.push(banner.posterImageUrl);
-        if (banner.mobilePosterImageUrl) urlsToDelete.push(banner.mobilePosterImageUrl);
-        // DO NOT delete productImageUrl, it belongs to the Product
-        if (banner.backgroundImageUrl) urlsToDelete.push(banner.backgroundImageUrl);
-      }
-      
-      // Delete document first
-      await deleteDoc(docRef);
-
-      // Invalidate cache
-      bannersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'banners'}) }).catch(()=>{});
-      }
-
-      try {
-        const deletedBanner = snap.exists() ? snap.data() : null;
-        await auditService.recordAuditLog({
-          action: 'BANNER_DELETED',
-          entityType: 'banner',
-          entityId: id,
-          entityName: deletedBanner?.title || id,
-          before: deletedBanner ? { title: deletedBanner.title } : null,
-          after: null
-        });
-      } catch (e) {}
-      
-      // Safely delete storage files
-      if (urlsToDelete.length > 0) {
-        await storageService.safeDeleteFiles(urlsToDelete);
-      }
-    } catch (error: any) {
-      console.error('Error deleting banner:', error);
-      throw new Error(error?.message || 'تعذر حذف الإعلان.');
-    }
+    await supabaseDb.deleteDoc(BANNERS_COLLECTION, id);
+    this.clearCache();
   },
 
-  // -------------------------------------------------------------
-  // 3. News Ticker (شريط النشرة والأخبار)
-  // -------------------------------------------------------------
-  async getAllNews(): Promise<NewsTickerItem[]> {
-    if (!db) return [];
-
-    // Return from cache if fresh
-    if (newsCache && (Date.now() - newsCache.timestamp < CACHE_TTL)) {
+  async getNewsTickerItems(): Promise<NewsTickerItem[]> {
+    const now = Date.now();
+    if (newsCache && now - newsCache.timestamp < CACHE_TTL) {
       return [...newsCache.data];
     }
-
     try {
-      const colRef = collection(db, TICKER_COLLECTION);
-      const snapshot = await getDocs(colRef);
-      const list: NewsTickerItem[] = [];
-      snapshot.forEach((d) => {
-        list.push({
-          id: d.id,
-          ...d.data()
-        } as NewsTickerItem);
-      });
-      const sorted = list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-
-      // Update cache
-      newsCache = { data: [...sorted], timestamp: Date.now() };
-      return sorted;
-    } catch (error) {
-      console.error('Error fetching news ticker items:', error);
+      const list = await supabaseDb.getCollection<NewsTickerItem>(TICKER_COLLECTION);
+      list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      newsCache = { data: list, timestamp: now };
+      return list;
+    } catch {
       return [];
     }
   },
 
-  async getActiveNews(): Promise<NewsTickerItem[]> {
-    const all = await this.getAllNews();
+  async createNewsTickerItem(item: Omit<NewsTickerItem, 'id'>): Promise<string> {
+    const id = `ticker_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const newItem: NewsTickerItem = { ...item, id };
+    await supabaseDb.setDoc(TICKER_COLLECTION, id, newItem);
+    this.clearCache();
+    return id;
+  },
+
+  async updateNewsTickerItem(id: string, updates: Partial<NewsTickerItem>): Promise<void> {
+    await supabaseDb.updateDoc(TICKER_COLLECTION, id, updates);
+    this.clearCache();
+  },
+
+  async deleteNewsTickerItem(id: string): Promise<void> {
+    await supabaseDb.deleteDoc(TICKER_COLLECTION, id);
+    this.clearCache();
+  },
+
+  async getLimitedOffers(): Promise<LimitedOffer[]> {
     const now = Date.now();
-
-    return all.filter((item) => {
-      if (!item.isActive) return false;
-
-      if (item.startDate) {
-        const start = new Date(item.startDate).getTime();
-        if (!isNaN(start) && now < start) return false;
-      }
-
-      if (item.endDate) {
-        const end = new Date(item.endDate.includes('T') ? item.endDate : `${item.endDate}T23:59:59`).getTime();
-        if (!isNaN(end) && now > end) return false;
-      }
-
-      return true;
-    });
-  },
-
-  async createNews(newsData: Omit<NewsTickerItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const colRef = collection(db, TICKER_COLLECTION);
-      const sanitized = sanitizeForFirestore({
-        ...newsData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      const docRef = await addDoc(colRef, sanitized);
-
-      // Invalidate cache
-      newsCache = null;
-
-      return docRef.id;
-    } catch (error: any) {
-      console.error('Error creating news ticker item:', error);
-      throw new Error(error?.message || 'تعذر إضافة الخبر.');
-    }
-  },
-
-  async updateNews(id: string, newsData: Partial<NewsTickerItem>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, TICKER_COLLECTION, id);
-      const snap = await getDoc(docRef);
-      let oldUrls: string[] = [];
-      if (snap.exists()) {
-        const item = snap.data() as NewsTickerItem;
-        if (item.icon) oldUrls.push(item.icon);
-      }
-      
-      const sanitized = sanitizeForFirestore({
-        ...newsData,
-        updatedAt: new Date().toISOString()
-      });
-      await updateDoc(docRef, sanitized);
-
-      // Invalidate cache
-      newsCache = null;
-      
-      if (oldUrls.length > 0) {
-        let newUrls: string[] = [];
-        if (newsData.icon) newUrls.push(newsData.icon);
-        
-        const imageFieldsUpdated = 'icon' in newsData;
-        if (imageFieldsUpdated) {
-          const removedUrls = oldUrls.filter(url => !newUrls.includes(url));
-          if (removedUrls.length > 0) {
-            await storageService.safeDeleteFiles(removedUrls);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('Error updating news ticker item:', error);
-      throw new Error(error?.message || 'تعذر تعديل الخبر.');
-    }
-  },
-
-  async deleteNews(id: string): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, TICKER_COLLECTION, id);
-      await deleteDoc(docRef);
-      // DO NOT delete icon image since News items do not upload/own files.
-
-      // Invalidate cache
-      newsCache = null;
-    } catch (error: any) {
-      console.error('Error deleting news ticker item:', error);
-      throw new Error(error?.message || 'تعذر حذف الخبر.');
-    }
-  },
-
-  // -------------------------------------------------------------
-  // 4. Limited Offers (عروض لفترة محدودة)
-  // -------------------------------------------------------------
-  async getAllOffers(): Promise<LimitedOffer[]> {
-    if (!db) return [];
-    
-    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-
-    if (offersCache && (Date.now() - offersCache.timestamp < CACHE_TTL)) {
+    if (offersCache && now - offersCache.timestamp < CACHE_TTL) {
       return [...offersCache.data];
     }
-    
     try {
-      if (!isAdmin) {
-        try {
-          const res = await fetch('/api/cache/offers');
-          const contentType = res.headers.get('content-type') || '';
-          if (res.ok && contentType.includes('application/json')) {
-            const list = await res.json();
-            if (Array.isArray(list)) {
-              offersCache = { data: [...list], timestamp: Date.now() };
-              return list;
-            }
-          }
-        } catch (fetchErr) {
-          console.warn('Failed to fetch offers from server cache:', fetchErr);
-        }
-      }
-
-      const colRef = collection(db, OFFERS_COLLECTION);
-      const snapshot = await getDocs(colRef);
-      const list: LimitedOffer[] = [];
-      snapshot.forEach((d) => {
-        list.push({
-          id: d.id,
-          ...d.data()
-        } as LimitedOffer);
-      });
-      
-      let enrichedList = [...list];
-      if (isAdmin) {
-        // Enforce product images directly in admin cache to prevent discrepancies
-        try {
-          // Dynamic import to avoid circular dependency if possible, but here we just use the loaded productService
-          const { productService } = await import('./productService');
-          const publishedProducts = await productService.getAllProducts(false);
-          const productsMap = new Map();
-          publishedProducts.forEach(p => productsMap.set(p.id, p));
-          enrichedList = list.map(offer => {
-            const prod = productsMap.get(offer.productId);
-            if (prod) {
-              offer.productImage = prod.mainImageUrl || offer.productImage;
-              offer.productName = prod.name || offer.productName;
-            }
-            return offer;
-          });
-        } catch (e) {
-          console.warn('Could not enrich limited offers', e);
-        }
-      }
-      
-      offersCache = { data: enrichedList, timestamp: Date.now() };
-      return enrichedList;
-    } catch (error) {
-      console.error('Error fetching limited offers:', error);
+      const list = await supabaseDb.getCollection<LimitedOffer>(OFFERS_COLLECTION);
+      list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      offersCache = { data: list, timestamp: now };
+      return list;
+    } catch {
       return [];
     }
   },
 
-  async getActiveOffers(): Promise<LimitedOffer[]> {
-    const all = await this.getAllOffers();
+  async createLimitedOffer(offer: Omit<LimitedOffer, 'id'>): Promise<string> {
+    const id = `offer_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const newOffer: LimitedOffer = { ...offer, id };
+    await supabaseDb.setDoc(OFFERS_COLLECTION, id, newOffer);
+    this.clearCache();
+    return id;
+  },
+
+  async updateLimitedOffer(id: string, updates: Partial<LimitedOffer>): Promise<void> {
+    await supabaseDb.updateDoc(OFFERS_COLLECTION, id, updates);
+    this.clearCache();
+  },
+
+  async deleteLimitedOffer(id: string): Promise<void> {
+    await supabaseDb.deleteDoc(OFFERS_COLLECTION, id);
+    this.clearCache();
+  },
+
+  async getComingSoonItems(): Promise<ComingSoonItem[]> {
     const now = Date.now();
-
-    return all.filter((offer) => {
-      if (!offer.isActive) return false;
-
-      const start = new Date(`${offer.startDate}T${offer.startTime || '00:00'}:00`).getTime();
-      const end = new Date(`${offer.endDate}T${offer.endTime || '23:59'}:00`).getTime();
-
-      if (isNaN(start) || isNaN(end)) return false;
-      return now >= start && now <= end;
-    });
-  },
-
-  async createOffer(offerData: Omit<LimitedOffer, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const colRef = collection(db, OFFERS_COLLECTION);
-      const sanitized = sanitizeForFirestore({
-        ...offerData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      const docRef = await addDoc(colRef, sanitized);
-
-      // Invalidate cache
-      offersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
-      }
-
-      return docRef.id;
-    } catch (error: any) {
-      console.error('Error creating offer:', error);
-      throw new Error(error?.message || 'تعذر إضافة العرض.');
-    }
-  },
-
-  async updateOffer(id: string, offerData: Partial<LimitedOffer>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, OFFERS_COLLECTION, id);
-      const snap = await getDoc(docRef);
-      let oldUrls: string[] = [];
-      if (snap.exists()) {
-        const item = snap.data() as LimitedOffer;
-        if (item.productImage) oldUrls.push(item.productImage);
-      }
-      
-      const sanitized = sanitizeForFirestore({
-        ...offerData,
-        updatedAt: new Date().toISOString()
-      });
-      await updateDoc(docRef, sanitized);
-
-      // Invalidate cache
-      offersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
-      }
-      
-      if (oldUrls.length > 0) {
-        let newUrls: string[] = [];
-        if (offerData.productImage) newUrls.push(offerData.productImage);
-        
-        const imageFieldsUpdated = 'productImage' in offerData;
-        if (imageFieldsUpdated) {
-          const removedUrls = oldUrls.filter(url => !newUrls.includes(url));
-          if (removedUrls.length > 0) {
-            await storageService.safeDeleteFiles(removedUrls);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('Error updating offer:', error);
-      throw new Error(error?.message || 'تعذر تعديل العرض.');
-    }
-  },
-
-  async deleteOffer(id: string): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, OFFERS_COLLECTION, id);
-      await deleteDoc(docRef);
-      // DO NOT delete the productImage, as it belongs to the Product.
-
-      // Invalidate cache
-      offersCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'offers'}) }).catch(()=>{});
-      }
-    } catch (error: any) {
-      console.error('Error deleting offer:', error);
-      throw new Error(error?.message || 'تعذر حذف العرض.');
-    }
-  },
-
-  // -------------------------------------------------------------
-  // 5. Coming Soon Items (قادم قريبًا)
-  // -------------------------------------------------------------
-  async getAllComingSoon(): Promise<ComingSoonItem[]> {
-    if (!db) return [];
-    
-    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-
-    if (comingSoonCache && (Date.now() - comingSoonCache.timestamp < CACHE_TTL)) {
+    if (comingSoonCache && now - comingSoonCache.timestamp < CACHE_TTL) {
       return [...comingSoonCache.data];
     }
-    
     try {
-      if (!isAdmin) {
-        try {
-          const res = await fetch('/api/cache/comingSoon');
-          const contentType = res.headers.get('content-type') || '';
-          if (res.ok && contentType.includes('application/json')) {
-            const list = await res.json();
-            if (Array.isArray(list)) {
-              list.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
-              comingSoonCache = { data: [...list], timestamp: Date.now() };
-              return list;
-            }
-          }
-        } catch (fetchErr) {
-          console.warn('Failed to fetch comingSoon from server cache:', fetchErr);
-        }
-      }
-
-      const colRef = collection(db, COMING_SOON_COLLECTION);
-      const snapshot = await getDocs(colRef);
-      const list: ComingSoonItem[] = [];
-      snapshot.forEach((d) => {
-        list.push({
-          id: d.id,
-          ...d.data()
-        } as ComingSoonItem);
-      });
-      const sorted = list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-      comingSoonCache = { data: sorted, timestamp: Date.now() };
-      return sorted;
-    } catch (error) {
-      console.error('Error fetching coming soon items:', error);
+      const list = await supabaseDb.getCollection<ComingSoonItem>(COMING_SOON_COLLECTION);
+      list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      comingSoonCache = { data: list, timestamp: now };
+      return list;
+    } catch {
       return [];
     }
   },
 
-  async getActiveComingSoon(): Promise<ComingSoonItem[]> {
-    const all = await this.getAllComingSoon();
-    return all.filter((item) => item.isActive);
+  async createComingSoonItem(item: Omit<ComingSoonItem, 'id'>): Promise<string> {
+    const id = `cs_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const newItem: ComingSoonItem = { ...item, id };
+    await supabaseDb.setDoc(COMING_SOON_COLLECTION, id, newItem);
+    this.clearCache();
+    return id;
   },
 
-  async createComingSoonItem(itemData: Omit<ComingSoonItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const colRef = collection(db, COMING_SOON_COLLECTION);
-      const sanitized = sanitizeForFirestore({
-        ...itemData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      const docRef = await addDoc(colRef, sanitized);
-
-      // Invalidate cache
-      comingSoonCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
-      }
-
-      return docRef.id;
-    } catch (error: any) {
-      console.error('Error creating coming soon item:', error);
-      throw new Error(error?.message || 'تعذر إضافة المنتج القادم.');
-    }
-  },
-
-  async updateComingSoonItem(id: string, itemData: Partial<ComingSoonItem>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, COMING_SOON_COLLECTION, id);
-      const snap = await getDoc(docRef);
-      let oldUrls: string[] = [];
-      if (snap.exists()) {
-        const item = snap.data() as ComingSoonItem;
-        if (item.image) oldUrls.push(item.image);
-      }
-      
-      const sanitized = sanitizeForFirestore({
-        ...itemData,
-        updatedAt: new Date().toISOString()
-      });
-      await updateDoc(docRef, sanitized);
-
-      // Invalidate cache
-      comingSoonCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
-      }
-      
-      if (oldUrls.length > 0) {
-        let newUrls: string[] = [];
-        if (itemData.image) newUrls.push(itemData.image);
-        
-        const imageFieldsUpdated = 'image' in itemData;
-        if (imageFieldsUpdated) {
-          const removedUrls = oldUrls.filter(url => !newUrls.includes(url));
-          if (removedUrls.length > 0) {
-            await storageService.safeDeleteFiles(removedUrls);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('Error updating coming soon item:', error);
-      throw new Error(error?.message || 'تعذر تعديل المنتج القادم.');
-    }
+  async updateComingSoonItem(id: string, updates: Partial<ComingSoonItem>): Promise<void> {
+    await supabaseDb.updateDoc(COMING_SOON_COLLECTION, id, updates);
+    this.clearCache();
   },
 
   async deleteComingSoonItem(id: string): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    try {
-      const docRef = doc(db, COMING_SOON_COLLECTION, id);
-      await deleteDoc(docRef);
-      // DO NOT delete the image, as coming soon items use manual URLs or product image references.
+    await supabaseDb.deleteDoc(COMING_SOON_COLLECTION, id);
+    this.clearCache();
+  },
 
-      // Invalidate cache
-      comingSoonCache = null;
-      if (typeof window !== 'undefined') {
-        fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'comingSoon'}) }).catch(()=>{});
-      }
-    } catch (error: any) {
-      console.error('Error deleting coming soon item:', error);
-      throw new Error(error?.message || 'تعذر حذف المنتج القادم.');
-    }
-  }
+  async getAllBanners(param?: any): Promise<HeroBanner[]> { return this.getBanners(); },
+  async getActiveBanners(param?: any): Promise<HeroBanner[]> { return this.getBanners(); },
+  async getCategoryBanners(param?: any): Promise<HeroBanner[]> { return this.getBanners(); },
+  async getCatalogBanners(param?: any): Promise<HeroBanner[]> { return this.getBanners(); },
+  async getAllNews(): Promise<NewsTickerItem[]> { return this.getNewsTickerItems(); },
+  async createNews(item: any): Promise<string> { return this.createNewsTickerItem(item); },
+  async updateNews(id: string, updates: any): Promise<void> { return this.updateNewsTickerItem(id, updates); },
+  async deleteNews(id: string): Promise<void> { return this.deleteNewsTickerItem(id); },
+  async getAllOffers(): Promise<LimitedOffer[]> { return this.getLimitedOffers(); },
+  async createOffer(offer: any): Promise<string> { return this.createLimitedOffer(offer); },
+  async updateOffer(id: string, updates: any): Promise<void> { return this.updateLimitedOffer(id, updates); },
+  async deleteOffer(id: string): Promise<void> { return this.deleteLimitedOffer(id); },
+  async getAllComingSoon(): Promise<ComingSoonItem[]> { return this.getComingSoonItems(); },
+  async getActiveOffers(): Promise<LimitedOffer[]> { return this.getLimitedOffers(); },
+  async getActiveComingSoon(): Promise<ComingSoonItem[]> { return this.getComingSoonItems(); },
+  async getActiveNews(): Promise<NewsTickerItem[]> { return this.getNewsTickerItems(); }
 };

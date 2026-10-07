@@ -799,33 +799,76 @@ export function AdminOrdersPage() {
                 </h4>
 
                 <div className="border border-[var(--border)] rounded-2xl p-4 bg-[var(--surface-elevated)] space-y-3 shadow-sm">
-                  {selectedOrder.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between gap-4 py-2 border-b border-[var(--border)] last:border-0 last:pb-0"
-                    >
-                      <div className="flex items-center gap-3">
-                        {item.productImage ? (
-                          <img
-                            src={getValidImageSrc(item.productImage)}
-                            alt={item.productName}
-                            className="w-10 h-10 rounded-lg object-contain bg-[var(--surface)] p-0.5 border border-[var(--border)]"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 bg-[var(--surface)] border border-[var(--border)] rounded-lg" />
-                        )}
-                        <div>
-                          <span className="text-xs font-bold text-[var(--text-primary)] block">{item.productName}</span>
-                          <span className="text-[10px] text-[var(--text-muted)]">
-                            الكمية: {item.quantity.toLocaleString('ar-EG')} × {item.priceAtPurchase.toLocaleString('ar-EG')} ج.م
+                  {selectedOrder.items.map((item, idx) => {
+                    const isBundle = Boolean(item.isBundle || (item.bundleItems && item.bundleItems.length > 0));
+                    return (
+                      <div
+                        key={idx}
+                        className="py-3 border-b border-[var(--border)] last:border-0 last:pb-0 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3">
+                            {item.productImage ? (
+                              <img
+                                src={getValidImageSrc(item.productImage)}
+                                alt={item.productName}
+                                className="w-12 h-12 rounded-xl object-contain bg-[var(--surface)] p-1 border border-[var(--border)] shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 bg-[var(--surface)] border border-[var(--border)] rounded-xl shrink-0" />
+                            )}
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {isBundle && (
+                                  <span className="text-[9px] font-black text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                                    عرض مركب
+                                  </span>
+                                )}
+                                <span className="text-xs font-bold text-[var(--text-primary)] block">{item.productName}</span>
+                              </div>
+                              <span className="text-[11px] text-[var(--text-muted)] block">
+                                الكمية: {item.quantity.toLocaleString('ar-EG')} × {item.priceAtPurchase.toLocaleString('ar-EG')} ج.م
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-xs font-black text-[var(--text-primary)] font-mono shrink-0">
+                            {(item.lineTotal || (item.priceAtPurchase * item.quantity)).toLocaleString('ar-EG')} ج.م
                           </span>
                         </div>
+
+                        {/* Bundle Constituent Items Breakdown */}
+                        {isBundle && item.bundleItems && item.bundleItems.length > 0 && (
+                          <div className="mr-6 pr-3 border-r-2 border-[#D4AF37]/40 bg-[var(--surface)]/60 rounded-lg p-2.5 space-y-1.5 text-xs">
+                            <span className="text-[10px] font-bold text-[var(--text-secondary)] block">
+                              المنتجات المشمولة في هذا العرض:
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {item.bundleItems.map((bi, bIdx) => (
+                                <div key={bIdx} className="flex items-center gap-2">
+                                  {bi.productImage && (
+                                    <img
+                                      src={getValidImageSrc(bi.productImage)}
+                                      alt={bi.productName}
+                                      className="w-6 h-6 rounded object-contain bg-black/30 p-0.5 border border-[var(--border)]"
+                                    />
+                                  )}
+                                  <span className="text-[11px] text-[var(--text-primary)] font-semibold truncate">{bi.productName}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Installment Plan Breakdown if any */}
+                        {item.installmentPlan && (
+                          <div className="mr-6 text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-lg border border-sky-500/20 inline-flex items-center gap-1.5">
+                            <span>💳 خطة التقسيط المعتمدة:</span>
+                            <span>{item.installmentPlan.monthlyPayment.toLocaleString('ar-EG')} ج.م شهرياً × {item.installmentPlan.months} شهر ({item.installmentPlan.providerName})</span>
+                          </div>
+                        )}
                       </div>
-                      <span className="text-xs font-black text-[var(--text-primary)] font-mono">
-                        {(item.lineTotal || (item.priceAtPurchase * item.quantity)).toLocaleString('ar-EG')} ج.م
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

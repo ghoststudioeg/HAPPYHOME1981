@@ -4,6 +4,7 @@ import { homepageService, DEFAULT_HOMEPAGE_SETTINGS } from '../../lib/data/homep
 import { productService } from '../../lib/data/productService';
 import { categoryService } from '../../lib/data/categoryService';
 import { storageService } from '../../lib/data/storageService';
+import { bundleService } from '../../lib/data/bundleService';
 import {
   HomepageSettings,
   LimitedOffer,
@@ -15,7 +16,8 @@ import {
   BannerPlacement,
   NewsTickerItem,
   Product,
-  Category
+  Category,
+  BundleOffer
 } from '../../types';
 import {
   extractYouTubeVideoId,
@@ -95,6 +97,7 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
   const [comingSoon, setComingSoon] = useState<ComingSoonItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [bundles, setBundles] = useState<BundleOffer[]>([]);
 
   // Delete Modal State
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -208,14 +211,15 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [s, b, n, o, c, p, cats] = await Promise.all([
+      const [s, b, n, o, c, p, cats, bnds] = await Promise.all([
         homepageService.getSettings(),
         homepageService.getAllBanners(),
         homepageService.getAllNews(),
         homepageService.getAllOffers(),
         homepageService.getAllComingSoon(),
         productService.getAllProducts(true),
-        categoryService.getCategories(true)
+        categoryService.getCategories(true),
+        bundleService.getAllBundles(true)
       ]);
       setSettings(s);
       setBanners(b);
@@ -224,6 +228,7 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
       setComingSoon(c);
       setProducts(p);
       setCategories(cats);
+      setBundles(bnds);
     } catch (err: any) {
       console.error(err);
       setErrorMsg('تعذر تحميل إعدادات الصفحة الرئيسية.');
@@ -461,6 +466,9 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
     } else if (bannerForm.targetType === 'category') {
       const catId = bannerForm.targetValue || (bannerForm.categoryIds && bannerForm.categoryIds[0]) || '';
       syncCategoryIds = catId ? [catId] : [];
+    } else if (bannerForm.targetType === 'bundle_offer' || (bannerForm.targetType as any) === 'bundle') {
+      syncCtaLink = `/offer/${bannerForm.targetValue || ''}`;
+      syncCtaType = 'custom_link';
     } else if (bannerForm.targetType === 'page' || bannerForm.targetType === 'offer' || bannerForm.targetType === 'external') {
       syncCtaLink = bannerForm.targetValue || '';
       syncCtaType = 'custom_link';
@@ -1032,6 +1040,9 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
                   const catId = banner.targetValue || (banner.categoryIds && banner.categoryIds[0]);
                   const cat = categories.find((c) => c.id === catId);
                   targetLabel = cat ? `قسم: ${cat.name}` : `قسم (#${catId || ''})`;
+                } else if (targetType === 'bundle_offer' || (targetType as any) === 'bundle') {
+                  const foundBundle = bundles.find((b) => b.slug === banner.targetValue || b.id === banner.targetValue);
+                  targetLabel = foundBundle ? `عرض مركب: ${foundBundle.name}` : `عرض مركب (#${banner.targetValue || ''})`;
                 } else if (targetType === 'offer') {
                   targetLabel = 'صفحة العروض والتخفيضات (/offers)';
                 } else if (targetType === 'page') {
@@ -1944,14 +1955,87 @@ export function AdminHomepagePage({ navigate }: AdminHomepagePageProps) {
                     <label className="text-xs font-bold text-[var(--text-primary)]">وجهة النقر (Target)</label>
                     <select
                       value={bannerForm.targetType}
-                      onChange={(e) => setBannerForm(prev => ({ ...prev, targetType: e.target.value as any }))}
+                      onChange={(e) => setBannerForm(prev => ({ ...prev, targetType: e.target.value as any, targetValue: '' }))}
                       className="w-full bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-xl p-3 outline-none focus:border-[#D4AF37] transition-all cursor-pointer"
                     >
                       <option value="none">لا شيء (صورة فقط)</option>
-                      <option value="link">رابط مخصص</option>
+                      <option value="bundle_offer">عرض مركب (Bundle Offer)</option>
                       <option value="product">منتج محدد</option>
                       <option value="category">قسم محدد</option>
+                      <option value="link">رابط مخصص</option>
                     </select>
+
+                    {/* Bundle Offer Selector */}
+                    {bannerForm.targetType === 'bundle_offer' && (
+                      <div className="pt-2 space-y-1">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)]">اختر العرض المركب:</label>
+                        <select
+                          value={bannerForm.targetValue}
+                          onChange={(e) => setBannerForm(prev => ({ ...prev, targetValue: e.target.value }))}
+                          className="w-full bg-[var(--surface)] border border-[#D4AF37]/50 text-[var(--text-primary)] text-xs rounded-xl p-2.5 outline-none focus:border-[#D4AF37]"
+                        >
+                          <option value="">-- اختر عرضاً مركباً --</option>
+                          {bundles.map((b) => (
+                            <option key={b.id} value={b.slug || b.id}>
+                              {b.name} ({b.bundlePrice} ج.م)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Product Selector */}
+                    {bannerForm.targetType === 'product' && (
+                      <div className="pt-2 space-y-1">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)]">اختر المنتج:</label>
+                        <select
+                          value={bannerForm.targetValue}
+                          onChange={(e) => setBannerForm(prev => ({ ...prev, targetValue: e.target.value }))}
+                          className="w-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-xl p-2.5 outline-none focus:border-[#D4AF37]"
+                        >
+                          <option value="">-- اختر منتجاً --</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.price} ج.م)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Category Selector */}
+                    {bannerForm.targetType === 'category' && (
+                      <div className="pt-2 space-y-1">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)]">اختر القسم:</label>
+                        <select
+                          value={bannerForm.targetValue}
+                          onChange={(e) => setBannerForm(prev => ({ ...prev, targetValue: e.target.value }))}
+                          className="w-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-xl p-2.5 outline-none focus:border-[#D4AF37]"
+                        >
+                          <option value="">-- اختر قسماً --</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Custom Link */}
+                    {bannerForm.targetType === 'link' && (
+                      <div className="pt-2 space-y-1">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)]">الرابط المخصص:</label>
+                        <input
+                          type="text"
+                          value={bannerForm.targetValue}
+                          onChange={(e) => setBannerForm(prev => ({ ...prev, targetValue: e.target.value }))}
+                          placeholder="https://... أو /products"
+                          dir="ltr"
+                          className="w-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-xl p-2.5 outline-none focus:border-[#D4AF37]"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">

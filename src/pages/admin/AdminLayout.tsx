@@ -22,7 +22,9 @@ import {
   TrendingUp,
   Flame,
   History,
-  CreditCard
+  CreditCard,
+  Gift,
+  Building2
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -80,12 +82,14 @@ export function AdminLayout({ currentPath, navigate, settings, children }: Admin
     { label: 'نظرة عامة', path: '/admin', icon: LayoutDashboard },
     { label: 'الإحصائيات والتحليلات', path: '/admin/analytics', icon: TrendingUp },
     { label: 'العروض والفلاش سيل', path: '/admin/promotions', icon: Flame },
+    { label: 'العروض المركبة (Bundles)', path: '/admin/bundles', icon: Gift },
     { label: 'الطلبات', path: '/admin/orders', icon: ClipboardList },
     { label: 'المراجعات والتقييمات', path: '/admin/reviews', icon: Star },
     { label: 'كوبونات الخصم', path: '/admin/coupons', icon: Ticket },
     { label: 'التنبيهات والإشعارات', path: '/admin/notifications', icon: Bell },
     { label: 'إدارة الصفحة الرئيسية', path: '/admin/homepage', icon: Sparkles },
     { label: 'المنتجات', path: '/admin/products', icon: Package },
+    { label: 'الشركات (Brands)', path: '/admin/companies', icon: Building2 },
     { label: 'الأقسام', path: '/admin/categories', icon: Layers },
     { label: 'التقسيط', path: '/admin/installments', icon: CreditCard },
     { label: 'تأمين فوري', path: '/admin/insurance', icon: Shield },

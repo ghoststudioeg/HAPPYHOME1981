@@ -344,11 +344,34 @@ export function InvoicePrintPage({ orderId, navigate }: InvoicePrintPageProps) {
                   {order.items.map((item, idx) => {
                     const unitPrice = item.priceAtPurchase;
                     const lineTotal = item.lineTotal || (unitPrice * item.quantity);
+                    const isBundle = Boolean(item.isBundle || (item.bundleItems && item.bundleItems.length > 0));
                     return (
                       <tr key={idx} className="hover:bg-slate-50/50 page-break-inside-avoid">
                         <td className="p-3.5 text-center font-mono text-slate-400 font-bold">{idx + 1}</td>
-                        <td className="p-3.5 font-bold text-slate-900 text-sm">
-                          {item.productName}
+                        <td className="p-3.5 font-bold text-slate-900 text-sm space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isBundle && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                عرض مركب
+                              </span>
+                            )}
+                            <span className="text-slate-900 font-bold">{isBundle ? `عرض: ${item.bundleName || item.productName}` : item.productName}</span>
+                          </div>
+                          {isBundle && item.bundleItems && item.bundleItems.length > 0 && (
+                            <div className="pr-3 border-r-2 border-amber-300 text-[11px] text-slate-600 space-y-0.5 pt-0.5">
+                              <span className="font-semibold text-slate-700 block">المنتجات المشمولة:</span>
+                              <ul className="list-disc list-inside space-y-0.5">
+                                {item.bundleItems.map((bi, bIdx) => (
+                                  <li key={bIdx}>{bi.productName}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {item.installmentPlan && (
+                            <div className="text-[10px] text-blue-900 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200 inline-block mt-1">
+                              💳 نظام التقسيط: {item.installmentPlan.monthlyPayment.toLocaleString('ar-EG')} ج.م شهرياً × {item.installmentPlan.months} شهر ({item.installmentPlan.providerName})
+                            </div>
+                          )}
                         </td>
                         <td className="p-3.5 text-center font-black text-sm">{item.quantity.toLocaleString('ar-EG')}</td>
                         <td className="p-3.5 text-left font-mono font-bold text-slate-700">

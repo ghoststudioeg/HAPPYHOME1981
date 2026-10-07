@@ -99,6 +99,16 @@ export function CartPage({ navigate, settings }: CartPageProps) {
   }, []);
 
   const getItemPricing = React.useCallback((product: Product) => {
+    if (product.id.startsWith('bundle_') || product.categoryId === 'bundle') {
+      return {
+        effectivePrice: product.price,
+        originalBasePrice: product.oldPrice || product.price,
+        isCampaignActive: false,
+        discountAmount: 0,
+        badgeText: '',
+        isFlashSale: false
+      };
+    }
     return getEffectiveProductPrice(product, activeBanners, activePromotions);
   }, [activeBanners, activePromotions]);
 
@@ -377,13 +387,25 @@ export function CartPage({ navigate, settings }: CartPageProps) {
 
       const orderItems: OrderItem[] = resolvedCartItems.map((item) => {
         const pricing = getItemPricing(item.product);
+        const isBundle = Boolean(item.isBundle || item.bundleId || item.productId.startsWith('bundle_'));
         return {
           productId: item.productId,
           productName: item.product.name,
           productImage: item.product.mainImageUrl || '',
           priceAtPurchase: pricing.effectivePrice,
           quantity: item.quantity,
-          lineTotal: pricing.effectivePrice * item.quantity
+          lineTotal: pricing.effectivePrice * item.quantity,
+          isBundle,
+          bundleId: item.bundleId || (isBundle ? item.productId.replace(/^bundle_/, '') : undefined),
+          bundleName: isBundle ? item.product.name : undefined,
+          bundleItems: isBundle && item.bundleProducts ? item.bundleProducts.map(bp => ({
+            productId: bp.id,
+            productName: bp.name,
+            productImage: bp.mainImageUrl || '',
+            originalPrice: bp.price || 0,
+            sku: bp.sku || ''
+          })) : undefined,
+          installmentPlan: item.selectedInstallmentPlan
         };
       });
 
@@ -621,9 +643,15 @@ export function CartPage({ navigate, settings }: CartPageProps) {
                     {/* Info */}
                     <div className="min-w-0 flex-1 space-y-1 sm:space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[9px] font-bold text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded-md border border-[#D4AF37]/20">
-                          {item.product.categoryName || 'قسم آخر'}
-                        </span>
+                        {item.isBundle || item.productId.startsWith('bundle_') ? (
+                          <span className="text-[9px] font-black text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-md border border-amber-500/30">
+                            عرض مركب (باقة توفير)
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded-md border border-[#D4AF37]/20">
+                            {item.product.categoryName || 'قسم آخر'}
+                          </span>
+                        )}
                         {item.product.stockStatus === 'coming_soon' ? (
                           <span className="text-[9px] font-bold text-sky-500 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">
                             قريباً
@@ -646,6 +674,21 @@ export function CartPage({ navigate, settings }: CartPageProps) {
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--text-primary)] truncate">
                         {item.product.name}
                       </h3>
+
+                      {/* Bundle items list if bundle */}
+                      {item.bundleProducts && item.bundleProducts.length > 0 && (
+                        <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                          <span className="font-bold text-[var(--text-primary)]">يشمل: </span>
+                          {item.bundleProducts.map((bp) => bp.name).join(' + ')}
+                        </p>
+                      )}
+
+                      {/* Installment plan pill if chosen */}
+                      {item.selectedInstallmentPlan && (
+                        <div className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          <span>💳 نظام التقسيط: {item.selectedInstallmentPlan.monthlyPayment.toLocaleString('ar-EG')} ج.م شهرياً × {item.selectedInstallmentPlan.months} شهر</span>
+                        </div>
+                      )}
                       
                       {(() => {
                         const pricing = getItemPricing(item.product);

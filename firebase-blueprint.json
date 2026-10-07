@@ -496,6 +496,34 @@
         "customerNotes": { "type": "string", "maxLength": 2000 }
       },
       "required": ["name", "provider", "type", "durationMonths", "coverageType", "pricingMode", "active"]
+    },
+    "BundleOffer": {
+      "title": "BundleOffer",
+      "description": "Multi-product bundle offer with custom design and installment terms",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "badgeText": { "type": "string", "maxLength": 100 },
+        "imageUrl": { "type": "string", "maxLength": 2048 },
+        "productIds": { "type": "array" },
+        "hasSpecialPrice": { "type": "boolean" },
+        "bundlePrice": { "type": "number" },
+        "originalTotalPrice": { "type": "number" },
+        "installmentEnabled": { "type": "boolean" },
+        "installmentHeadline": { "type": "string", "maxLength": 200 },
+        "installmentPlans": { "type": "array" },
+        "isActive": { "type": "boolean" },
+        "startAt": { "type": "string" },
+        "endAt": { "type": "string" },
+        "viewsCount": { "type": "number" },
+        "clicksCount": { "type": "number" },
+        "purchasesCount": { "type": "number" },
+        "sortOrder": { "type": "number" },
+        "showOnHome": { "type": "boolean" }
+      },
+      "required": ["name", "slug", "imageUrl", "productIds", "bundlePrice", "isActive"]
     }
   },
   "firestore": {
@@ -606,6 +634,10 @@
     "/insurancePolicies/{policyId}": {
       "schema": "InsurancePolicy",
       "description": "Device and screen insurance policies and tier pricing rules"
+    },
+    "/bundleOffers/{bundleId}": {
+      "schema": "BundleOffer",
+      "description": "Multi-product bundle offers with custom design and installment plans"
     }
   }
 }

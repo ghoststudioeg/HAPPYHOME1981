@@ -362,7 +362,10 @@ export function CheckoutPage({ navigate, settings }: CheckoutPageProps) {
       const idempotencyKey = `checkout_${user?.uid || 'guest'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const rawItems = resolvedCartItems.map(i => ({
         productId: i.productId,
-        quantity: i.quantity
+        quantity: i.quantity,
+        isBundle: Boolean(i.isBundle || i.bundleId || i.productId.startsWith('bundle_')),
+        bundleId: i.bundleId || (i.productId.startsWith('bundle_') ? i.productId.replace(/^bundle_/, '') : undefined),
+        selectedInstallmentPlan: i.selectedInstallmentPlan
       }));
 
       // 1. Authoritative Order Placement via Firestore Transaction
@@ -842,25 +845,40 @@ export function CheckoutPage({ navigate, settings }: CheckoutPageProps) {
 
             {/* Items List */}
             <div className="space-y-3 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
-              {resolvedCartItems.map((item) => (
-                <div key={item.productId} className="flex items-center gap-3 p-2 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
-                  <img
-                    src={getValidImageSrc(item.product.mainImageUrl || item.product.additionalImages?.[0] || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=120')}
-                    alt={item.product.name}
-                    className="w-12 h-12 object-cover rounded-lg bg-black/40 border border-[var(--border)] shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[var(--text-primary)] truncate">{item.product.name}</p>
-                    <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
-                      {item.quantity} × <span className="font-mono text-[var(--text-primary)]">{item.product.price.toLocaleString('ar-EG')} ج.م</span>
-                    </p>
+              {resolvedCartItems.map((item) => {
+                const isBundle = Boolean(item.isBundle || item.bundleId || item.productId.startsWith('bundle_'));
+                return (
+                  <div key={item.productId} className="flex items-center gap-3 p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+                    <img
+                      src={getValidImageSrc(item.product.mainImageUrl || item.product.additionalImages?.[0] || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=120')}
+                      alt={item.product.name}
+                      className="w-12 h-12 object-cover rounded-lg bg-black/40 border border-[var(--border)] shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {isBundle && (
+                          <span className="text-[8px] font-black text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30">
+                            عرض مركب
+                          </span>
+                        )}
+                        <p className="text-xs font-bold text-[var(--text-primary)] truncate">{item.product.name}</p>
+                      </div>
+                      {isBundle && item.bundleProducts && item.bundleProducts.length > 0 && (
+                        <p className="text-[10px] text-[var(--text-secondary)] truncate">
+                          يشمل: {item.bundleProducts.map((bp) => bp.name).join(' + ')}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+                        {item.quantity} × <span className="font-mono text-[var(--text-primary)]">{item.product.price.toLocaleString('ar-EG')} ج.م</span>
+                      </p>
+                    </div>
+                    <div className="text-left font-mono font-bold text-xs text-[#E0B84A] shrink-0">
+                      {(item.product.price * item.quantity).toLocaleString('ar-EG')} ج.م
+                    </div>
                   </div>
-                  <div className="text-left font-mono font-bold text-xs text-[#E0B84A]">
-                    {(item.product.price * item.quantity).toLocaleString('ar-EG')} ج.م
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Coupon Code Section */}

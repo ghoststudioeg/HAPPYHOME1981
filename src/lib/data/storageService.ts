@@ -1,5 +1,5 @@
-import { collection, getDocs, getDoc, doc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { auth } from '../firebase';
+import { getSupabaseBrowserClient } from './supabaseClient';
 const MAX_FILE_SIZE_MB = 8;
 const MAX_DIMENSION = 1600;
 const COMPRESSION_QUALITY = 0.85;
@@ -88,12 +88,6 @@ export const storageService = {
   },
 
   async uploadFile(blob: Blob, fileName: string, folder: string): Promise<string> {
-    // 1. Ensure partitioned cookie is configured for sandboxed environments
-    try {
-      const host = window.location.hostname;
-      document.cookie = `__SECURE-aistudio_auth_flow_may_set_cookies=true; Path=/; Secure; SameSite=None; Domain=${host}; Partitioned; Max-Age=604800;`;
-    } catch {}
-
     const blobToDataUrl = (b: Blob): Promise<string> =>
       new Promise((resolve) => {
         const reader = new FileReader();
@@ -101,9 +95,52 @@ export const storageService = {
         reader.readAsDataURL(b);
       });
 
-    // Attempt 1: Standard multipart upload to Supabase via /api/storage/upload with credentials: 'include'
+    // Ensure we obtain a valid ID token from Firebase Auth
+    let idToken = '';
+    if (auth?.currentUser) {
+      try {
+        idToken = await auth.currentUser.getIdToken(false);
+      } catch (e) {
+        console.warn('Failed to get fresh idToken from currentUser:', e);
+      }
+    } else if (auth) {
+      // If auth is still loading during page mount, wait briefly for auth state
+      await new Promise<void>((resolve) => {
+        const unsubscribe = auth.onAuthStateChanged(() => {
+          unsubscribe();
+          resolve();
+        });
+        setTimeout(resolve, 800);
+      });
+      if (auth.currentUser) {
+        try {
+          idToken = await auth.currentUser.getIdToken(false);
+        } catch {}
+      }
+    }
+
+    const uploadHeaders: Record<string, string> = {
+      'Accept': 'application/json'
+    };
+    if (idToken) {
+      uploadHeaders['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    console.log('[Storage Upload Request]', {
+      endpoint: '/api/storage/upload',
+      method: 'POST',
+      folder,
+      fileName,
+      size: blob.size,
+      hasToken: !!idToken,
+      timestamp: new Date().toISOString()
+    });
+
+    let lastErrorMessage = '';
+
+    // Attempt 1: Standard multipart upload to Supabase via /api/storage/upload
+    const start1 = Date.now();
     try {
-      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
       const formData = new FormData();
       formData.append('file', blob, fileName);
       formData.append('folder', folder);
@@ -111,11 +148,16 @@ export const storageService = {
 
       const response = await fetch('/api/storage/upload', {
         method: 'POST',
-        headers: {
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-        },
+        headers: uploadHeaders,
         body: formData,
         credentials: 'include'
+      });
+
+      console.log('[Storage Upload Response 1]', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        contentType: response.headers.get('content-type')
       });
 
       const contentType = response.headers.get('content-type') || '';
@@ -124,23 +166,41 @@ export const storageService = {
         if (response.ok && data.success && data.url) {
           return data.url;
         }
+        if (data?.error) {
+          lastErrorMessage = data.error;
+        }
+      } else if (!response.ok) {
+        lastErrorMessage = `خطأ في الخادم (${response.status} ${response.statusText})`;
       }
-    } catch {
-      // Ignore and proceed to Attempt 2
+    } catch (err: any) {
+      console.error('[API FETCH ERROR]', {
+        url: '/api/storage/upload',
+        method: 'POST',
+        error: err?.message || String(err),
+        duration: `${Date.now() - start1}ms`
+      });
+      lastErrorMessage = err?.message || 'تعذر الاتصال بالخادم';
     }
 
-    // Attempt 2: JSON payload upload to /api/storage/upload (often bypasses multipart boundary checks)
+    // Attempt 2: JSON payload upload to /api/storage/upload (bypasses multipart stream issues)
+    const start2 = Date.now();
     try {
-      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
       const dataUrl = await blobToDataUrl(blob);
       const jsonResponse = await fetch('/api/storage/upload', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+          ...uploadHeaders
         },
         body: JSON.stringify({ dataUrl, fileName, folder }),
         credentials: 'include'
+      });
+
+      console.log('[Storage Upload Response 2]', {
+        status: jsonResponse.status,
+        statusText: jsonResponse.statusText,
+        ok: jsonResponse.ok,
+        contentType: jsonResponse.headers.get('content-type')
       });
 
       const jsonContentType = jsonResponse.headers.get('content-type') || '';
@@ -149,12 +209,57 @@ export const storageService = {
         if (jsonResponse.ok && data.success && data.url) {
           return data.url;
         }
+        if (data?.error) {
+          lastErrorMessage = data.error;
+        }
+      } else if (!jsonResponse.ok) {
+        lastErrorMessage = `خطأ في الخادم (${jsonResponse.status} ${jsonResponse.statusText})`;
       }
-    } catch {
-      // Ignore and proceed to fallback
+    } catch (err: any) {
+      console.error('[API FETCH ERROR]', {
+        url: '/api/storage/upload',
+        method: 'POST',
+        error: err?.message || String(err),
+        duration: `${Date.now() - start2}ms`
+      });
+      lastErrorMessage = err?.message || 'تعذر الاتصال بالخادم';
     }
 
-    throw new Error('تعذر رفع الملف إلى خادم التخزين Supabase. يرجى التأكد من تكوين إعدادات التخزين بشكل صحيح.');
+    // Attempt 3: Direct Supabase client upload fallback if API proxy failed due to network/iframe proxy issues
+    try {
+      const browserClient = getSupabaseBrowserClient();
+      if (browserClient) {
+        const filePath = `${folder}/${fileName}`;
+        const { data: uploadData, error: directErr } = await browserClient.storage
+          .from('product-images')
+          .upload(filePath, blob, {
+            contentType: blob.type || 'image/webp',
+            upsert: true
+          });
+
+        if (!directErr && uploadData) {
+          const { data: pubData } = browserClient.storage
+            .from('product-images')
+            .getPublicUrl(filePath);
+          if (pubData?.publicUrl) {
+            console.log('[Storage Upload Success Attempt 3 (Direct Client)]', pubData.publicUrl);
+            return pubData.publicUrl;
+          }
+        }
+      }
+    } catch (directUploadErr: any) {
+      console.warn('[Storage Upload Direct Attempt Warning]', directUploadErr?.message || directUploadErr);
+    }
+
+    // Format specific error message for customer/admin
+    if (lastErrorMessage) {
+      if (lastErrorMessage.includes('NetworkError') || lastErrorMessage.includes('Failed to fetch') || lastErrorMessage.includes('Network request failed')) {
+        throw new Error('تعذر الاتصال بخادم رفع الصور. يرجى التأكد من اتصال الإنترنت والمحاولة مجدداً.');
+      }
+      throw new Error(lastErrorMessage);
+    }
+
+    throw new Error('تعذر رفع الملف إلى خادم التخزين Supabase. يرجى التأكد من اتصال الإنترنت وصلاحيات الحساب.');
   },
 
   async uploadProductImage(productId: string, file: File): Promise<string> {
@@ -162,6 +267,29 @@ export const storageService = {
     const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${Date.now()}_${sanitizedFileName}`;
     return this.uploadFile(optimizedBlob, fileName, `products/${productId}`);
+  },
+
+  async uploadBundleImage(bundleIdOrTemp: string, file: File): Promise<string> {
+    // 1. Validate supported image formats: PNG, JPG/JPEG, WEBP
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const allowedExts = ['png', 'jpg', 'jpeg', 'webp'];
+    
+    if ((file.type && !allowedTypes.includes(file.type.toLowerCase())) && !allowedExts.includes(ext)) {
+      throw new Error('نوع الملف غير مدعوم. يُرجى اختيار صورة بصيغة PNG أو JPG أو WebP.');
+    }
+
+    // 2. Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error('حجم الصورة أكبر من الحد المسموح به (10 ميجابايت).');
+    }
+
+    // 3. Image optimization to WebP
+    const optimizedBlob = await this.optimizeImage(file);
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const fileName = `design-${uniqueId}.webp`;
+    const folderId = bundleIdOrTemp ? bundleIdOrTemp.replace(/[^a-zA-Z0-9_-]/g, '_') : `temp_${Date.now()}`;
+    return this.uploadFile(optimizedBlob, fileName, `bundle-offers/${folderId}`);
   },
 
   async uploadCategoryImage(categoryId: string, file: File): Promise<string> {

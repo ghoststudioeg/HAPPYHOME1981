@@ -5,7 +5,8 @@ import { categoryService } from '../../lib/data/categoryService';
 import { storageService } from '../../lib/data/storageService';
 import { inventoryService } from '../../lib/data/inventoryService';
 import { normalizeSlug } from '../../lib/seoUtils';
-import { Product, Category, ProductColor, ProductColorVariant, StockStatus } from '../../types';
+import { Product, Category, Company, ProductColor, ProductColorVariant, StockStatus } from '../../types';
+import { companyService } from '../../lib/data/companyService';
 import { ImageUploader } from '../../components/admin/ImageUploader';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { ConfirmDeleteModal } from '../../components/admin/ConfirmDeleteModal';
@@ -41,17 +42,20 @@ import {
   AlertTriangle,
   PackageCheck,
   Clock,
-  CreditCard
+  CreditCard,
+  Building2
 } from 'lucide-react';
 
 export function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState('all');
   const [selectedStockFilter, setSelectedStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock' | 'coming_soon'>('all');
 
   const handleSetStockFilter = (filter: 'all' | 'in_stock' | 'low_stock' | 'out_of_stock' | 'coming_soon') => {
@@ -88,6 +92,7 @@ export function AdminProductsPage() {
   // Form Fields
   const [name, setName] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [companyId, setCompanyId] = useState('');
   const [price, setPrice] = useState<number>(0);
   const [oldPrice, setOldPrice] = useState<number | undefined>(undefined);
   const [sku, setSku] = useState('');
@@ -144,13 +149,15 @@ export function AdminProductsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [prods, cats, providers] = await Promise.all([
+      const [prods, cats, comps, providers] = await Promise.all([
         productService.getAllProducts(true),
         categoryService.getCategories(true),
+        companyService.getCompanies(true).catch(() => []),
         installmentService.getProviders().catch(() => [])
       ]);
       setProducts(prods);
       setCategories(cats);
+      setCompanies(comps || []);
       setAllInstallmentProviders(providers || []);
     } catch (err) {
       console.error(err);
@@ -294,6 +301,7 @@ export function AdminProductsPage() {
     setEditingProduct(null);
     setName('');
     setCategoryId(categories[0]?.id || '');
+    setCompanyId('');
     setPrice(0);
     setOldPrice(undefined);
     setSku(`BAYT-${Math.floor(1000 + Math.random() * 9000)}`);
@@ -341,6 +349,7 @@ export function AdminProductsPage() {
     setEditingProduct(prod);
     setName(prod.name);
     setCategoryId(prod.categoryId);
+    setCompanyId(prod.companyId || '');
     setPrice(prod.price);
     setOldPrice(prod.oldPrice);
     setSku(prod.sku);
@@ -627,6 +636,7 @@ export function AdminProductsPage() {
           name: name.trim(),
           categoryId,
           categoryName,
+          companyId: companyId ? companyId : (null as any),
           price,
           oldPrice: oldPrice ? Number(oldPrice) : null,
           sku: sku.trim(),
@@ -664,6 +674,7 @@ export function AdminProductsPage() {
           slug: uniqueSlug,
           categoryId,
           categoryName,
+          companyId: companyId ? companyId : undefined,
           price,
           oldPrice: oldPrice ? Number(oldPrice) : null,
           sku: sku.trim(),
@@ -757,6 +768,7 @@ export function AdminProductsPage() {
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.sku.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
+    const matchesCompany = selectedCompanyFilter === 'all' || (selectedCompanyFilter === 'none' ? !p.companyId : p.companyId === selectedCompanyFilter);
     
     let matchesStock = true;
     const stock = typeof p.stockQuantity === 'number' ? p.stockQuantity : (p.isAvailable ? 10 : 0);
@@ -773,7 +785,7 @@ export function AdminProductsPage() {
       matchesStock = status === 'coming_soon';
     }
 
-    return matchesSearch && matchesCat && matchesStock;
+    return matchesSearch && matchesCat && matchesCompany && matchesStock;
   });
 
   return (
@@ -914,6 +926,22 @@ export function AdminProductsPage() {
             </option>
           ))}
         </select>
+
+        {companies.length > 0 && (
+          <select
+            value={selectedCompanyFilter}
+            onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+            className="w-full sm:w-44 bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-xl py-2.5 px-3 outline-none focus:border-[#D4AF37]"
+          >
+            <option value="all">جميع الشركات</option>
+            <option value="none">بدون شركة محددة</option>
+            {companies.map((comp) => (
+              <option key={comp.id} value={comp.id}>
+                {comp.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Products Table */}
@@ -1146,6 +1174,33 @@ export function AdminProductsPage() {
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[var(--text-primary)] mb-1.5 flex items-center justify-between">
+                    <span>الشركة / الماركة (اختياري)</span>
+                    {companyId && (
+                      <button
+                        type="button"
+                        onClick={() => setCompanyId('')}
+                        className="text-[10px] text-amber-400 hover:underline"
+                      >
+                        إلغاء التحديد
+                      </button>
+                    )}
+                  </label>
+                  <select
+                    value={companyId}
+                    onChange={(e) => setCompanyId(e.target.value)}
+                    className="w-full bg-[var(--surface-secondary)] border border-[var(--border)] focus:border-[#D6A83A] text-[var(--text-primary)] text-xs rounded-xl py-2.5 px-3.5 outline-none"
+                  >
+                    <option value="">بدون شركة (غير محدد)</option>
+                    {companies.map((comp) => (
+                      <option key={comp.id} value={comp.id}>
+                        {comp.name} {comp.isActive === false ? '(غير مفعلة)' : ''}
                       </option>
                     ))}
                   </select>

@@ -3,8 +3,9 @@ import { User, updateProfile } from 'firebase/auth';
 import { authService } from './data/authService';
 import { userService } from './data/userService';
 import { recentlyViewedService } from './data/recentlyViewedService';
-import { UserProfileData, UserFavoriteItem, UserCartItem, ResolvedCartItem, Product, UserRole } from '../types';
+import { UserProfileData, UserFavoriteItem, UserCartItem, ResolvedCartItem, Product, UserRole, BundleOffer, BundleInstallmentPlan } from '../types';
 import { productService } from './data/productService';
+import { bundleService, calculateBundleStock } from './data/bundleService';
 
 import { analyticsService } from './data/analyticsService';
 
@@ -36,6 +37,7 @@ interface AuthContextType {
   resolvedCartItems: ResolvedCartItem[];
   cartCount: number;
   addToCart: (productId: string, quantity?: number) => Promise<void>;
+  addBundleToCart: (bundle: BundleOffer, quantity?: number, selectedPlan?: BundleInstallmentPlan) => Promise<void>;
   updateCartItemQuantity: (productId: string, quantity: number) => Promise<void>;
   removeFromCart: (productId: string) => Promise<void>;
   clearCart: () => Promise<void>;
@@ -45,6 +47,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  console.log('[BOOT 4] AuthProvider initialization');
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
@@ -52,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [favoritesList, setFavoritesList] = useState<UserFavoriteItem[]>([]);
   const [cartList, setCartList] = useState<UserCartItem[]>([]);
   const [resolvedProducts, setResolvedProducts] = useState<Product[]>([]);
+  const [resolvedBundles, setResolvedBundles] = useState<BundleOffer[]>([]);
   const [loginPromptOpen, setLoginPromptOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [wishlistGroups, setWishlistGroups] = useState<string[]>(['المفضلة العامة', 'أدوات المطبخ', 'هدايا للمستقبل']);
@@ -101,10 +105,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // Merge guest recently viewed history with firestore account history
-        recentlyViewedService.mergeGuestHistoryOnLogin(authUser.uid).catch(e => {
-          console.warn('Recently viewed login merge warning:', e);
-        });
+        // Merge guest recently viewed history with account history safely
+        try {
+          if (typeof recentlyViewedService?.mergeGuestHistoryOnLogin === 'function') {
+            recentlyViewedService.mergeGuestHistoryOnLogin(authUser.uid).catch(e => {
+              console.warn('Recently viewed login merge warning:', e);
+            });
+          }
+        } catch (e) {
+          console.warn('Recently viewed login merge error:', e);
+        }
       }
     });
 
@@ -118,27 +128,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const unsubscribe = userService.subscribeToFavorites(user.uid, (items) => {
-      setFavoritesList(items);
-    });
-
-    return () => unsubscribe();
+    try {
+      if (typeof userService?.subscribeToFavorites === 'function') {
+        const unsubscribe = userService.subscribeToFavorites(user.uid, (items) => {
+          setFavoritesList(Array.isArray(items) ? items : []);
+        });
+        return () => {
+          try {
+            unsubscribe?.();
+          } catch {}
+        };
+      }
+    } catch (err) {
+      console.warn('[AuthProvider] subscribeToFavorites safe catch:', err);
+    }
   }, [user?.uid]);
 
-  // Fetch product info for cart and favorites only
+  // Fetch product & bundle info for cart and favorites
   useEffect(() => {
-    const ids = new Set<string>();
-    cartList.forEach(i => ids.add(i.productId));
-    favoritesList.forEach(i => ids.add(i.productId));
-    
-    if (ids.size === 0) {
-      setResolvedProducts([]);
-      return;
-    }
+    const productIds = new Set<string>();
+    const bundleIds = new Set<string>();
 
-    productService.getProductsByIds(Array.from(ids))
-      .then(setResolvedProducts)
-      .catch(err => console.error('Error preloading products in auth context:', err));
+    cartList.forEach((i) => {
+      if (i.isBundle || i.bundleId || i.productId.startsWith('bundle_')) {
+        const bId = i.bundleId || i.productId.replace(/^bundle_/, '');
+        bundleIds.add(bId);
+      } else {
+        productIds.add(i.productId);
+      }
+    });
+    favoritesList.forEach((i) => productIds.add(i.productId));
+
+    // If there are bundle items in cart, load bundle definitions and their included products
+    if (bundleIds.size > 0) {
+      bundleService.getAllBundles().then((allBundles) => {
+        setResolvedBundles(allBundles);
+        allBundles.forEach((b) => {
+          if (bundleIds.has(b.id) || bundleIds.has(b.slug)) {
+            (b.productIds || []).forEach((pid) => productIds.add(pid));
+          }
+        });
+
+        if (productIds.size > 0) {
+          productService.getProductsByIds(Array.from(productIds))
+            .then(setResolvedProducts)
+            .catch((err) => console.error('Error preloading products in auth context:', err));
+        }
+      }).catch((err) => console.error('Error preloading bundles in auth context:', err));
+    } else if (productIds.size > 0) {
+      productService.getProductsByIds(Array.from(productIds))
+        .then(setResolvedProducts)
+        .catch((err) => console.error('Error preloading products in auth context:', err));
+    } else {
+      setResolvedProducts([]);
+    }
   }, [cartList, favoritesList]);
 
   // Subscribe to real-time cart or load guest cart
@@ -157,11 +200,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const unsubscribe = userService.subscribeToCart(user.uid, (items) => {
-      setCartList(items);
-    });
-
-    return () => unsubscribe();
+    try {
+      if (typeof userService?.subscribeToCart === 'function') {
+        const unsubscribe = userService.subscribeToCart(user.uid, (items) => {
+          setCartList(Array.isArray(items) ? items : []);
+        });
+        return () => {
+          try {
+            unsubscribe?.();
+          } catch {}
+        };
+      }
+    } catch (err) {
+      console.warn('[AuthProvider] subscribeToCart safe catch:', err);
+    }
   }, [user?.uid]);
 
   // Fast Set of favorited product IDs
@@ -431,10 +483,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCartList([]);
   }, []);
 
-  // Resolve cart items with latest product details
+  // Resolve cart items with latest product details (including bundles)
   const resolvedCartItems = useMemo(() => {
     return cartList
       .map((item) => {
+        // Handle Bundle Cart Items
+        if (item.isBundle || item.bundleId || item.productId.startsWith('bundle_')) {
+          const bId = item.bundleId || item.productId.replace(/^bundle_/, '');
+          const bundle = resolvedBundles.find((b) => b.id === bId || b.slug === bId);
+          const bundleProducts = (bundle?.productIds || [])
+            .map((pid) => resolvedProducts.find((p) => p.id === pid))
+            .filter((p): p is Product => !!p);
+
+          const stock = calculateBundleStock(bundleProducts);
+          const bPrice = typeof item.bundlePrice === 'number' ? item.bundlePrice : (bundle?.bundlePrice || 0);
+
+          const syntheticProduct: Product = {
+            id: item.productId,
+            name: bundle?.name || 'عرض مركب',
+            slug: bundle?.slug || bId,
+            price: bPrice,
+            oldPrice: bundle?.originalTotalPrice || undefined,
+            categoryId: 'bundle',
+            categoryName: 'عروض مركبة',
+            mainImageUrl: bundle?.imageUrl || '',
+            isAvailable: stock > 0,
+            stockQuantity: stock,
+            stockStatus: stock > 0 ? 'in_stock' : 'out_of_stock',
+            description: bundle?.description || '',
+            features: [],
+            additionalImages: [],
+            isFeatured: true,
+            isPublished: true,
+            trackInventory: true,
+            sku: '',
+            sortOrder: 0
+          };
+
+          return {
+            ...item,
+            product: syntheticProduct,
+            bundle: bundle || undefined,
+            bundleProducts,
+            bundlePrice: bPrice,
+            selectedInstallmentPlan: item.selectedInstallmentPlan || bundle?.defaultPlan
+          } as ResolvedCartItem;
+        }
+
         const found = resolvedProducts.find((p) => p.id === item.productId);
         if (!found) return null;
         return {
@@ -443,7 +538,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       })
       .filter((item): item is ResolvedCartItem => item !== null);
-  }, [cartList, resolvedProducts]);
+  }, [cartList, resolvedProducts, resolvedBundles]);
 
   // Cart total count (sum of quantities)
   const cartCount = useMemo(() => {
@@ -454,7 +549,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const removeFromCart = useCallback(async (productId: string): Promise<void> => {
     if (!productId) return;
 
-    const updatedCartList = cartList.filter((item) => item.productId !== productId);
+    const updatedCartList = cartList.filter((item) => item.productId !== productId && item.id !== productId);
     setCartList(updatedCartList);
 
     if (user) {
@@ -474,7 +569,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, cartList, triggerToast]);
 
-  // Add to cart
+  // Add to cart (regular product)
   const addToCart = useCallback(async (productId: string, quantityToAdd: number = 1): Promise<void> => {
     if (!productId) return;
     
@@ -518,6 +613,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       triggerToast("تم إضافة المنتج إلى السلة.");
     }
   }, [user, cartList, triggerToast]);
+
+  // Add bundle offer to cart as a cohesive single unit
+  const addBundleToCart = useCallback(
+    async (bundle: BundleOffer, quantityToAdd: number = 1, selectedPlan?: BundleInstallmentPlan): Promise<void> => {
+      if (!bundle || !bundle.id) return;
+      const bundleCartId = `bundle_${bundle.id}`;
+
+      // Add to resolved bundles in memory immediately
+      setResolvedBundles((prev) => {
+        if (prev.some((b) => b.id === bundle.id)) return prev;
+        return [...prev, bundle];
+      });
+
+      const existingItem = cartList.find((item) => item.productId === bundleCartId || item.id === bundleCartId);
+      const currentQty = existingItem ? existingItem.quantity : 0;
+      const newQty = currentQty + quantityToAdd;
+
+      const plan = selectedPlan || bundle.defaultPlan || (bundle.installmentPlans && bundle.installmentPlans[0]) || undefined;
+
+      const newItem: UserCartItem = {
+        id: bundleCartId,
+        productId: bundleCartId,
+        quantity: newQty,
+        addedAt: existingItem?.addedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isBundle: true,
+        bundleId: bundle.id,
+        bundlePrice: bundle.bundlePrice,
+        selectedInstallmentPlan: plan
+      };
+
+      const updatedCartList = existingItem
+        ? cartList.map((item) => (item.productId === bundleCartId || item.id === bundleCartId ? newItem : item))
+        : [...cartList, newItem];
+
+      setCartList(updatedCartList);
+
+      if (user) {
+        try {
+          await userService.addToCart(user.uid, bundleCartId, newQty, {
+            isBundle: true,
+            bundleId: bundle.id,
+            bundlePrice: bundle.bundlePrice,
+            selectedInstallmentPlan: plan
+          });
+          analyticsService.trackEvent('cart_added', {
+            productId: bundleCartId,
+            userUid: user.uid,
+            metadata: { isBundle: true, bundleId: bundle.id, quantity: quantityToAdd }
+          });
+          triggerToast(`تمت إضافة العرض "${bundle.name}" إلى السلة.`);
+        } catch (e) {
+          console.error('Failed to add bundle to cart:', e);
+          triggerToast("حصل خطأ أثناء الإضافة.");
+          userService.getCart(user.uid).then(setCartList);
+        }
+      } else {
+        localStorage.setItem('guest_cart', JSON.stringify(updatedCartList));
+        analyticsService.trackEvent('cart_added', {
+          productId: bundleCartId,
+          metadata: { isBundle: true, bundleId: bundle.id, quantity: quantityToAdd }
+        });
+        triggerToast(`تمت إضافة العرض "${bundle.name}" إلى السلة.`);
+      }
+    },
+    [user, cartList, triggerToast]
+  );
 
   // Update cart item quantity
   const updateCartItemQuantity = useCallback(async (productId: string, quantity: number): Promise<void> => {
@@ -615,6 +777,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resolvedCartItems,
       cartCount,
       addToCart,
+      addBundleToCart,
       updateCartItemQuantity,
       removeFromCart,
       clearCart,
@@ -648,6 +811,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resolvedCartItems,
       cartCount,
       addToCart,
+      addBundleToCart,
       updateCartItemQuantity,
       removeFromCart,
       clearCart,

@@ -13,16 +13,12 @@ const puppeteer = require('puppeteer');
 
   page.on('console', msg => {
     const text = msg.text();
+    console.log(`[BROWSER ${msg.type()}] ${text}`);
     if (text.includes('An empty string ("") was passed to the')) {
       warningCount++;
-      console.warn('React Warning:', text);
     }
     if (text.includes('[IMAGE AUDIT] Empty src found')) {
       emptySrcCount++;
-      console.error('Audit Error:', text);
-    }
-    if (msg.type() === 'error') {
-      // console.log('Console Error:', text);
     }
   });
 
@@ -38,23 +34,33 @@ const puppeteer = require('puppeteer');
 
   try {
     console.log('Navigating to Home...');
-    await page.goto(url, { waitUntil: 'networkidle0' });
+    await page.goto(url, { waitUntil: 'load' });
+    
+    // Extract diagnostic info
+    const diag = await page.evaluate(() => {
+      const el = document.querySelector('.fixed.top-2.left-4');
+      return el ? el.innerText : 'Diagnostic overlay not found';
+    });
+    console.log('--- UI DIAGNOSTIC ---');
+    console.log(diag);
+    console.log('---------------------');
+
     await checkEmptySrcDOM('Home');
 
     console.log('Navigating to Categories...');
-    await page.goto(`${url}/categories`, { waitUntil: 'networkidle0' });
+    await page.goto(`${url}/categories`, { waitUntil: 'load' });
     await checkEmptySrcDOM('Categories');
 
     console.log('Navigating to Products...');
-    await page.goto(`${url}/products`, { waitUntil: 'networkidle0' });
+    await page.goto(`${url}/products`, { waitUntil: 'load' });
     await checkEmptySrcDOM('Products');
 
-    // Click on the first product
     console.log('Opening first product...');
-    const productLinks = await page.$$('a[href^="/product/"]');
-    if (productLinks.length > 0) {
-      const prodUrl = await page.evaluate(el => el.href, productLinks[0]);
-      await page.goto(prodUrl, { waitUntil: 'networkidle0' });
+    const productCards = await page.$$('[aria-label^="منتج:"]');
+    if (productCards.length > 0) {
+      console.log(`Found ${productCards.length} product cards.`);
+      await productCards[0].click();
+      await page.waitForTimeout(1000); // Wait for navigation
       await checkEmptySrcDOM('Product Details');
       
       console.log('Hard refreshing product page...');

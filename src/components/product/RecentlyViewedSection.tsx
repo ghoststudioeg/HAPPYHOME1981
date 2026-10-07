@@ -1,4 +1,4 @@
-import { getValidImageSrc, isValidImageSrc } from '../../utils/imageUtils';
+import { resolveImageUrl } from '../../utils/imageUtils';
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, RecentlyViewedItem, StoreSettings } from '../../types';
@@ -9,7 +9,6 @@ import { homepageService } from '../../lib/data/homepageService';
 import { getEffectiveProductPrice } from '../../lib/campaignPricing';
 import { useAuth } from '../../lib/authContext';
 import {
-
   Clock,
   Trash2,
   X,
@@ -20,7 +19,8 @@ import {
   Eye,
   CheckCircle2,
   XCircle,
-  Sparkles
+  Sparkles,
+  Package
 } from 'lucide-react';
 
 interface RecentlyViewedSectionProps {
@@ -241,14 +241,31 @@ export function RecentlyViewedSection({
                   <div>
                     {/* Image Container */}
                     <div className="relative w-full aspect-square rounded-lg sm:rounded-xl bg-[var(--surface-elevated)] p-2 mb-2 sm:mb-2.5 flex items-center justify-center overflow-hidden border border-[var(--border)]">
-                      <img
-                        src={getValidImageSrc(product.mainImageUrl || '/logo.svg')}
-                        alt={product.name}
-                        loading="lazy"
-                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                      />
+                      {(() => {
+                        const resolvedImg = resolveImageUrl(product.mainImageUrl);
+                        if (resolvedImg) {
+                          return (
+                            <img
+                              src={resolvedImg}
+                              alt={product.name}
+                              loading="lazy"
+                              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                            />
+                          );
+                        }
+                        return (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center select-none bg-gradient-to-b from-[#0A1A30]/60 to-[#050B14]/80">
+                            <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/25 flex items-center justify-center text-[#D4AF37] mb-1 group-hover:scale-105 transition-transform duration-300">
+                              <Package className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-bold text-[#E2E8F0] line-clamp-1 max-w-[90%]">
+                              {product.name}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       {pricing.isCampaignActive && (
-                        <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-[#D4AF37] text-[#05080D] text-[9px] font-black flex items-center gap-0.5 shadow-sm">
+                        <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-[#D4AF37] text-[#05080D] text-[9px] font-black flex items-center gap-0.5 shadow-sm z-10">
                           <Sparkles className="w-2.5 h-2.5" />
                           <span>عرض</span>
                         </div>

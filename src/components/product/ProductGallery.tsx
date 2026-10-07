@@ -1,8 +1,8 @@
-import { getValidImageSrc, isValidImageSrc } from '../../utils/imageUtils';
+import { resolveImageUrl, getValidImageSrc, isValidImageSrc } from '../../utils/imageUtils';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StoreSettings, ProductGallerySettings } from '../../types';
 import {
-
+  Package,
   ChevronLeft,
   ChevronRight,
   Maximize2,
@@ -331,14 +331,31 @@ export function ProductGallery({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          {/* Active Image */}
-          <img
-            src={getValidImageSrc(activeImageSrc)}
-            alt={`${productName} - صورة ${activeIndex + 1}`}
-            onClick={openZoom}
-            onError={() => handleImageError(activeImageSrc)}
-            className="w-full h-full object-contain p-2 sm:p-4 transition-all duration-300 cursor-zoom-in hover:scale-[1.02]"
-          />
+          {/* Active Image or Fallback */}
+          {(() => {
+            const resolvedSrc = resolveImageUrl(activeImageSrc);
+            if (resolvedSrc && !failedImages.has(activeImageSrc)) {
+              return (
+                <img
+                  src={resolvedSrc}
+                  alt={`${productName} - صورة ${activeIndex + 1}`}
+                  onClick={openZoom}
+                  onError={() => handleImageError(activeImageSrc)}
+                  className="w-full h-full object-contain p-2 sm:p-4 transition-all duration-300 cursor-zoom-in hover:scale-[1.02]"
+                />
+              );
+            }
+            return (
+              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center select-none bg-gradient-to-b from-[#0A1A30]/60 to-[#050B14]">
+                <div className="w-20 h-20 rounded-3xl bg-[#D4AF37]/10 border border-[#D4AF37]/25 flex items-center justify-center text-[#D4AF37] mb-3 shadow-[0_8px_32px_rgba(212,175,55,0.12)]">
+                  <Package className="w-10 h-10" />
+                </div>
+                <span className="text-sm font-bold text-[#E2E8F0] line-clamp-2 max-w-sm">
+                  {productName}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Badges Overlay */}
           <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10 pointer-events-none">

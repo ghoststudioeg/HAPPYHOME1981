@@ -1,4 +1,4 @@
-import { getValidImageSrc, isValidImageSrc } from '../utils/imageUtils';
+import { resolveImageUrl, getValidImageSrc, isValidImageSrc } from '../utils/imageUtils';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { categoryService } from '../lib/data/categoryService';
 import { productService } from '../lib/data/productService';
@@ -314,11 +314,15 @@ export function CategoryDetailPage({ slug, navigate }: CategoryDetailPageProps) 
             </p>
           </div>
 
-          {category.image && (
-            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden border border-[var(--border)] shrink-0 bg-[var(--surface)]">
-              <img src={getValidImageSrc(category.image)} alt={category.name} className="w-full h-full object-cover" />
-            </div>
-          )}
+          {(() => {
+            const resolvedCatImg = resolveImageUrl(category.image);
+            if (!resolvedCatImg) return null;
+            return (
+              <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden border border-[var(--border)] shrink-0 bg-[var(--surface)]">
+                <img src={resolvedCatImg} alt={category.name} className="w-full h-full object-cover" />
+              </div>
+            );
+          })()}
         </div>
       )}
 

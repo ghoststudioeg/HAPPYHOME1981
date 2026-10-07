@@ -8,7 +8,8 @@ import { catalogService } from '../lib/data/catalogService';
 import { homepageService } from '../lib/data/homepageService';
 import { promotionService } from '../lib/data/promotionService';
 import { getEffectiveProductPrice, EffectivePriceDetails } from '../lib/campaignPricing';
-import { Product, Category, StoreSettings, ProductSpecifications, ProductColor, ProductColorVariant, HeroBanner, Promotion } from '../types';
+import { Product, Category, Company, StoreSettings, ProductSpecifications, ProductColor, ProductColorVariant, HeroBanner, Promotion } from '../types';
+import { companyService } from '../lib/data/companyService';
 import { ProductColorSelector } from '../components/product/ProductColorSelector';
 import { ProductReviewsSection } from '../components/product/ProductReviewsSection';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -48,7 +49,9 @@ import {
   Truck,
   RotateCcw,
   Info,
-  Sparkles
+  Sparkles,
+  Building2,
+  ChevronLeft
 } from 'lucide-react';
 import { MoveToGroupModal } from '../components/wishlist/WishlistModals';
 import { useAuth } from '../lib/authContext';
@@ -105,6 +108,7 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
   } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [resolvedCategory, setResolvedCategory] = useState<Category | null>(null);
+  const [resolvedCompany, setResolvedCompany] = useState<Company | null>(null);
   const [categoryStatus, setCategoryStatus] = useState<'loading' | 'found' | 'missing' | 'none'>('loading');
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [activeBanners, setActiveBanners] = useState<HeroBanner[]>([]);
@@ -340,6 +344,19 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
       } else {
         setCategoryStatus('none');
       }
+
+      // Load linked company if product has companyId
+      if (prod.companyId) {
+        try {
+          const comp = await companyService.getCompanyById(prod.companyId);
+          setResolvedCompany(comp);
+        } catch (compErr) {
+          console.warn('Failed to load company for product:', compErr);
+          setResolvedCompany(null);
+        }
+      } else {
+        setResolvedCompany(null);
+      }
     } catch (err: any) {
       console.error('[ProductDetailPage Debug] Failed to load product details:', err);
       const errMsg = err?.message || String(err);
@@ -508,6 +525,39 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
     setIsComparisonOpen(true);
   };
 
+  const handleCompanyClick = () => {
+    if (!resolvedCompany) return;
+    const action = resolvedCompany.clickAction || 'company_page';
+    const target = resolvedCompany.targetValue?.trim() || '';
+
+    if (action === 'external_url' && target) {
+      let validUrl = target;
+      if (!validUrl.startsWith('http://') && !validUrl.startsWith('https://')) {
+        validUrl = `https://${validUrl}`;
+      }
+      try {
+        new URL(validUrl);
+        window.open(validUrl, '_blank', 'noopener,noreferrer');
+        return;
+      } catch {
+        navigate(`/company/${resolvedCompany.slug}`);
+        return;
+      }
+    }
+
+    if (action === 'category' && target) {
+      navigate(`/category/${target}`);
+      return;
+    }
+
+    if (action === 'product' && target) {
+      navigate(`/product/${target}`);
+      return;
+    }
+
+    navigate(`/company/${resolvedCompany.slug}`);
+  };
+
   const recommendedProducts = useMemo(() => {
     if (!product || allProducts.length === 0) return [];
     return getRecommendedProducts(product, allProducts, {
@@ -632,6 +682,51 @@ export function ProductDetailPage({ slug, navigate }: ProductDetailPageProps) {
                 discountPercent={discountPercent}
                 sku={selectedVariant?.sku || product.sku}
               />
+
+              {/* Brand / Company Badge directly below product image/gallery */}
+              {resolvedCompany && (
+                <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border-subtle)] hover:border-[#D4AF37]/50 shadow-md backdrop-blur-md transition-all">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={handleCompanyClick}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCompanyClick(); }}
+                    className="flex items-center justify-between gap-3 cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-white p-1.5 shadow-inner border border-slate-200/80 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform overflow-hidden">
+                        {resolvedCompany.logoUrl ? (
+                          <img
+                            src={getValidImageSrc(resolvedCompany.logoUrl) || resolvedCompany.logoUrl}
+                            alt={resolvedCompany.name}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <Building2 className="w-7 h-7 text-[#AA7C11]" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[10px] font-bold text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded-full border border-[#D4AF37]/20">
+                            الماركة والشركة
+                          </span>
+                        </div>
+                        <h4 className="text-xs sm:text-sm font-black text-[var(--text-primary)] group-hover:text-[#D4AF37] transition-colors truncate">
+                          {resolvedCompany.name}
+                        </h4>
+                        <p className="text-[10px] sm:text-[11px] text-[var(--text-secondary)] truncate max-w-xs">
+                          {resolvedCompany.description || 'تصفح جميع منتجات وأجهزة هذه الماركة'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-xs font-bold text-[#D4AF37] group-hover:translate-x-[-3px] transition-transform shrink-0">
+                      <span>عرض المنتجات</span>
+                      <ChevronLeft className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
 
             {/* 7. Key Specifications Section (Mobile Order #7) */}

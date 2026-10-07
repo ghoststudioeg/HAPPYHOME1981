@@ -1,12 +1,13 @@
-import { getValidImageSrc, isValidImageSrc } from '../utils/imageUtils';
-import React from 'react';
+import { resolveImageUrl } from '../utils/imageUtils';
+import React, { useState } from 'react';
 import { Product } from '../types';
-import { Eye, Check, X, Sparkles, MessageCircle, Heart, ShoppingCart, Star } from 'lucide-react';
+import { Eye, Check, X, Sparkles, MessageCircle, Heart, ShoppingCart, Star, Folder, Package } from 'lucide-react';
 import { extractBrand } from '../lib/brandUtils';
 import { catalogService } from '../lib/data/catalogService';
 import { useAuth } from '../lib/authContext';
 import { FlashSaleCountdown } from './FlashSaleCountdown';
 import { getProductCanonicalSlug } from '../lib/seoUtils';
+import { MoveToGroupModal } from './wishlist/WishlistModals';
 
 
 interface ProductCardProps {
@@ -33,8 +34,20 @@ export function ProductCard({
   flashSaleEndDate,
   badgeText
 }: ProductCardProps) {
-  const { isFavorite, toggleFavorite, addToCart } = useAuth();
+  const {
+    isFavorite,
+    toggleFavorite,
+    addToCart,
+    favoritesList,
+    wishlistGroups,
+    moveFavoriteToGroup,
+    createWishlistGroup,
+  } = useAuth();
   const favorited = isFavorite(product.id);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const resolvedImageUrl = resolveImageUrl(product.mainImageUrl);
 
   const currentPrice = effectivePrice !== undefined && isCampaignActive ? effectivePrice : product.price;
   const originalPrice = isCampaignActive ? product.price : product.oldPrice;
@@ -73,12 +86,24 @@ export function ProductCard({
         {/* Soft radial ambient glow behind phone/product */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(212,175,55,0.08)_0%,transparent_70%)] opacity-60 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-        <img
-          src={getValidImageSrc(product.mainImageUrl || '/logo.svg')}
-          alt={product.name}
-          className="w-full h-full object-contain drop-shadow-[0_12px_24px_var(--shadow)] group-hover:scale-105 transition-transform duration-500 ease-out"
-          loading="lazy"
-        />
+        {resolvedImageUrl && !imgError ? (
+          <img
+            src={resolvedImageUrl}
+            alt={product.name}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-contain drop-shadow-[0_12px_24px_var(--shadow)] group-hover:scale-105 transition-transform duration-500 ease-out"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center select-none bg-gradient-to-b from-[#0A1A30]/60 to-[#050B14]/80">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/25 flex items-center justify-center text-[#D4AF37] mb-2 shadow-[0_4px_20px_rgba(212,175,55,0.08)] group-hover:scale-105 transition-transform duration-300">
+              <Package className="w-6 h-6 sm:w-7 sm:h-7" />
+            </div>
+            <span className="text-[11px] sm:text-xs font-bold text-[#E2E8F0] line-clamp-1 max-w-[90%] group-hover:text-[#D4AF37] transition-colors">
+              {product.name}
+            </span>
+          </div>
+        )}
 
         {/* Top Badges */}
         <div className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 flex flex-col gap-1 z-10">
@@ -122,6 +147,20 @@ export function ProductCard({
           >
             <Heart className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform ${favorited ? 'fill-rose-400 text-rose-400 scale-110' : ''}`} />
           </button>
+          {favorited && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowGroupModal(true);
+              }}
+              title="نقل أو تحديد مجموعة الرغبات"
+              aria-label="نقل أو تحديد مجموعة الرغبات"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl backdrop-blur-md border border-[#D4AF37]/50 bg-[#D4AF37]/20 text-[#D4AF37] hover:bg-[#D4AF37]/35 transition-all flex items-center justify-center cursor-pointer shadow-md active:scale-90"
+            >
+              <Folder className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+          )}
           <span className="glass-pill text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] truncate max-w-[70px] sm:max-w-none">
             {brand}
           </span>
@@ -268,6 +307,24 @@ export function ProductCard({
           </div>
         </div>
       </div>
+
+      {/* Move to Wishlist Group Modal */}
+      {showGroupModal && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MoveToGroupModal
+            isOpen={showGroupModal}
+            onClose={() => setShowGroupModal(false)}
+            productId={product.id}
+            productName={product.name}
+            currentGroup={
+              favoritesList.find((f) => f.productId === product.id)?.groupName || 'المفضلة العامة'
+            }
+            groups={wishlistGroups}
+            onMove={moveFavoriteToGroup}
+            onCreateGroup={createWishlistGroup}
+          />
+        </div>
+      )}
     </div>
   );
 }

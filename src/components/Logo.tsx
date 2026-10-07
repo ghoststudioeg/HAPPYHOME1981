@@ -11,24 +11,37 @@ interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   variant?: 'full' | 'square' | 'mark';
   showSlogan?: boolean;
+  settings?: StoreSettings | null;
 }
 
 export function Logo({
   className = '',
   size = 'md',
   variant = 'full',
-  showSlogan = true
+  showSlogan = true,
+  settings: propSettings
 }: LogoProps) {
   const { theme } = useTheme();
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [internalSettings, setInternalSettings] = useState<StoreSettings | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    settingsService.getSettings().then(s => {
-      if (isMounted) setSettings(s);
-    }).catch(console.error);
-    return () => { isMounted = false; };
+    const fetchFresh = () => {
+      settingsService.getSettings().then(s => {
+        if (isMounted) setInternalSettings(s);
+      }).catch(console.error);
+    };
+
+    fetchFresh();
+
+    window.addEventListener('store-settings-updated', fetchFresh);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('store-settings-updated', fetchFresh);
+    };
   }, []);
+
+  const settings = propSettings || internalSettings;
 
   // Height sizing mapping
   const heightClasses = {

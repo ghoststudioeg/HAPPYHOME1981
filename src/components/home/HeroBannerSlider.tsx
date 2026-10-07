@@ -113,6 +113,12 @@ export function HeroBannerSlider({
         onNavigate(`/category/${val}`);
         return;
       }
+    } else if (banner.targetType === 'bundle_offer' || (banner.targetType as any) === 'bundle') {
+      const slug = banner.targetValue || (banner as any).targetBundleSlug || (banner as any).targetBundleId;
+      if (slug) {
+        onNavigate(`/offer/${slug}`);
+        return;
+      }
     } else if (banner.targetType === 'page') {
       if (banner.targetValue) {
         if (banner.targetValue.startsWith('http')) {

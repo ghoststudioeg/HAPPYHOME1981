@@ -287,5 +287,27 @@ service cloud.firestore {
       allow read: if isAdmin() || resource.data.active == true;
       allow create, update, delete: if isAdmin();
     }
+
+    // Bundle Offers: public read active bundles only, admin full CRUD, safe public stats increment
+    match /bundleOffers/{bundleId} {
+      allow read: if isAdmin() || (resource == null || resource.data.isActive == true);
+      allow create, delete: if isAdmin() && isValidId(bundleId);
+      allow update: if isValidId(bundleId) && (
+        isAdmin() ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewsCount', 'clicksCount', 'purchasesCount', 'updatedAt']))
+      );
+    }
+
+    // Companies (Brands): public read active companies (or admin all), admin full CRUD
+    match /companies/{companyId} {
+      allow read: if isAdmin() || (resource == null || resource.data.isActive == true);
+      allow create: if isAdmin() && isValidId(companyId)
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 100
+        && request.resource.data.slug is string && request.resource.data.slug.size() > 0 && request.resource.data.slug.size() <= 100;
+      allow update: if isAdmin() && isValidId(companyId)
+        && (!('name' in request.resource.data) || (request.resource.data.name is string && request.resource.data.name.size() <= 100))
+        && (!('slug' in request.resource.data) || (request.resource.data.slug is string && request.resource.data.slug.size() <= 100));
+      allow delete: if isAdmin() && isValidId(companyId);
+    }
   }
 }

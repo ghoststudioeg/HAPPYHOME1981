@@ -189,7 +189,7 @@ export function Header({ currentPath, navigate, settings }: HeaderProps) {
               className="cursor-pointer flex items-center select-none transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] shrink-0"
               title={settings.storeName}
             >
-              <Logo size="md" />
+              <Logo size="md" settings={settings} />
             </div>
 
             {/* Desktop Navigation Links */}
@@ -640,7 +640,7 @@ export function Header({ currentPath, navigate, settings }: HeaderProps) {
               }}
               className="cursor-pointer select-none"
             >
-              <Logo size="sm" />
+              <Logo size="sm" settings={settings} />
             </div>
             <span className="text-xs font-bold text-[#E0B84A]">
               {settings.tagline || 'قسط كل اللي نفسك فيه'}

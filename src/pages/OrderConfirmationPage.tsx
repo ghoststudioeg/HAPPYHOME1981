@@ -290,27 +290,61 @@ export function OrderConfirmationPage({ orderId, navigate, settings }: OrderConf
         </h3>
 
         <div className="divide-y divide-white/[0.06]">
-          {order.items.map((item, idx) => (
-            <div key={idx} className="py-3 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <img
-                  src={getValidImageSrc(item.productImage || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=100')}
-                  alt={item.productName}
-                  className="w-12 h-12 object-cover rounded-xl bg-black/40 border border-white/5"
-                  referrerPolicy="no-referrer"
-                />
-                <div>
-                  <p className="text-xs font-bold text-[#F8FAFC]">{item.productName}</p>
-                  <p className="text-[11px] text-[#94A3B8]">
-                    {item.quantity} × <span className="font-mono text-[#CBD5E1]">{item.priceAtPurchase.toLocaleString('ar-EG')} ج.م</span>
-                  </p>
+          {order.items.map((item, idx) => {
+            const isBundle = Boolean(item.isBundle || (item.bundleItems && item.bundleItems.length > 0));
+            return (
+              <div key={idx} className="py-3.5 space-y-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={getValidImageSrc(item.productImage || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=100')}
+                      alt={item.productName}
+                      className="w-12 h-12 object-cover rounded-xl bg-black/40 border border-white/5 shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {isBundle && (
+                          <span className="text-[9px] font-black text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                            عرض مركب
+                          </span>
+                        )}
+                        <p className="text-xs font-bold text-[#F8FAFC]">{item.productName}</p>
+                      </div>
+                      <p className="text-[11px] text-[#94A3B8]">
+                        {item.quantity} × <span className="font-mono text-[#CBD5E1]">{item.priceAtPurchase.toLocaleString('ar-EG')} ج.م</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-left font-mono font-bold text-xs text-[#E0B84A] shrink-0">
+                    {(item.lineTotal || (item.priceAtPurchase * item.quantity)).toLocaleString('ar-EG')} ج.م
+                  </div>
                 </div>
+
+                {/* Bundle Items Breakdown */}
+                {isBundle && item.bundleItems && item.bundleItems.length > 0 && (
+                  <div className="mr-6 pr-3 border-r-2 border-[#D4AF37]/30 bg-white/[0.02] rounded-lg p-2 text-xs space-y-1">
+                    <span className="text-[10px] font-bold text-[#D4AF37] block">محتويات العرض:</span>
+                    <div className="text-[11px] text-[#CBD5E1] space-y-0.5">
+                      {item.bundleItems.map((bi, bIdx) => (
+                        <div key={bIdx} className="flex items-center gap-1.5">
+                          <span className="text-[#D4AF37]">•</span>
+                          <span>{bi.productName}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Installment Info if any */}
+                {item.installmentPlan && (
+                  <div className="mr-6 text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-lg border border-sky-500/20 inline-flex items-center gap-1.5">
+                    <span>💳 خطة التقسيط: {item.installmentPlan.monthlyPayment.toLocaleString('ar-EG')} ج.م شهرياً × {item.installmentPlan.months} شهر</span>
+                  </div>
+                )}
               </div>
-              <div className="text-left font-mono font-bold text-xs text-[#E0B84A]">
-                {item.lineTotal.toLocaleString('ar-EG')} ج.م
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Financial Recap */}

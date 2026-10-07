@@ -1,100 +1,141 @@
-import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp
-} from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabaseDb, supabaseAdmin } from './supabaseDb';
 import { StoreSettings } from '../../types';
 import { DEFAULT_STORE_SETTINGS } from './seedData';
-import { sanitizeForFirestore } from '../firestoreUtils';
+import { auth } from '../firebase';
 
-const COLLECTION_NAME = 'storeSettings';
-const SETTING_DOC_ID = 'main';
-
-// In-memory cache for settings to avoid redundant Firestore reads
 let settingsCache: StoreSettings | null = null;
 let settingsCacheTime = 0;
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-let pendingSettingsRequest: Promise<StoreSettings> | null = null;
+const CACHE_TTL = 10 * 60 * 1000;
 
 export const settingsService = {
   clearCache() {
     settingsCache = null;
     settingsCacheTime = 0;
-    pendingSettingsRequest = null;
   },
 
   async getSettings(): Promise<StoreSettings> {
-    if (!db) return DEFAULT_STORE_SETTINGS;
-    
-    const isAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-
-    if (settingsCache && (Date.now() - settingsCacheTime < CACHE_TTL)) {
+    const now = Date.now();
+    if (settingsCache && now - settingsCacheTime < CACHE_TTL) {
       return { ...settingsCache };
     }
 
-    if (pendingSettingsRequest) return pendingSettingsRequest;
-    
-    pendingSettingsRequest = (async () => {
+    const isBrowser = typeof window !== 'undefined';
+
+    // In browser environment: try fetching from server cache endpoint first for fast, reliable data
+    if (isBrowser) {
       try {
-        if (!isAdmin) {
-          try {
-            const res = await fetch('/api/cache/settings');
-            const contentType = res.headers.get('content-type') || '';
-            if (res.ok && contentType.includes('application/json')) {
-              const data = await res.json();
-              if (data && typeof data === 'object' && !('fallbackToClient' in data && data.ok === false)) {
-                const settings = { ...DEFAULT_STORE_SETTINGS, ...data };
-                settingsCache = { ...settings };
-                settingsCacheTime = Date.now();
-                return settings;
-              }
-            }
-          } catch (fetchErr) {
-            console.warn('Failed to fetch settings from server cache, falling back to Firestore:', fetchErr);
+        const res = await fetch('/api/cache/settings');
+        if (res.ok) {
+          const apiSettings = await res.json();
+          if (apiSettings && typeof apiSettings === 'object') {
+            const merged: StoreSettings = {
+              ...DEFAULT_STORE_SETTINGS,
+              ...apiSettings,
+              logoUrl: apiSettings.logoUrl || DEFAULT_STORE_SETTINGS.logoUrl
+            };
+            settingsCache = { ...merged };
+            settingsCacheTime = now;
+            return merged;
           }
         }
-
-        const docRef = doc(db, COLLECTION_NAME, SETTING_DOC_ID);
-        const snapshot = await getDoc(docRef);
-        let settings: StoreSettings;
-        
-        if (!snapshot.exists()) {
-          settings = DEFAULT_STORE_SETTINGS;
-        } else {
-          settings = {
-            ...DEFAULT_STORE_SETTINGS,
-            ...snapshot.data()
-          } as StoreSettings;
-        }
-        
-        settingsCache = { ...settings };
-        settingsCacheTime = Date.now();
-        return settings;
-      } catch (error: any) {
-        console.error('Error fetching settings:', error);
-        if (settingsCache) return { ...settingsCache };
-        return DEFAULT_STORE_SETTINGS;
-      } finally {
-        pendingSettingsRequest = null;
+      } catch (e) {
+        console.warn('[settingsService] Browser /api/cache/settings fetch notice:', e);
       }
-    })();
+    }
 
-    return pendingSettingsRequest;
+    try {
+      // 1. Check PostgreSQL store_settings table directly
+      const { data, error } = await supabaseAdmin.from('store_settings').select('*').limit(1);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const d = data[0];
+        const settings: StoreSettings = {
+          ...DEFAULT_STORE_SETTINGS,
+          storeName: d.store_name || DEFAULT_STORE_SETTINGS.storeName,
+          logoUrl: d.logo_url || DEFAULT_STORE_SETTINGS.logoUrl,
+          whatsappNumber: d.whatsapp_number || DEFAULT_STORE_SETTINGS.whatsappNumber,
+          phone: d.phone || DEFAULT_STORE_SETTINGS.phone,
+          facebookUrl: d.facebook_url || DEFAULT_STORE_SETTINGS.facebookUrl,
+          instagramUrl: d.instagram_url || DEFAULT_STORE_SETTINGS.instagramUrl,
+          address: d.address || DEFAULT_STORE_SETTINGS.address,
+          workingHours: d.working_hours || DEFAULT_STORE_SETTINGS.workingHours,
+          heroTitle: d.hero_title || DEFAULT_STORE_SETTINGS.heroTitle,
+          heroSubtitle: d.hero_subtitle || DEFAULT_STORE_SETTINGS.heroSubtitle
+        };
+        settingsCache = { ...settings };
+        settingsCacheTime = now;
+        return settings;
+      }
+
+      // 2. Fallback to Supabase Storage JSON doc if table was empty
+      const doc = await supabaseDb.getDoc<StoreSettings>('store_settings', 'main');
+      const settings = doc ? { ...DEFAULT_STORE_SETTINGS, ...doc } : DEFAULT_STORE_SETTINGS;
+      settingsCache = { ...settings };
+      settingsCacheTime = now;
+      return settings;
+    } catch (err) {
+      console.error('Error fetching settings from Supabase:', err);
+      return settingsCache || DEFAULT_STORE_SETTINGS;
+    }
   },
 
   async updateSettings(newSettings: Partial<StoreSettings>): Promise<void> {
-    if (!db) throw new Error('تعذر الاتصال بقاعدة البيانات Firebase.');
-    const docRef = doc(db, COLLECTION_NAME, SETTING_DOC_ID);
-    const sanitizedPayload = sanitizeForFirestore({
-      ...newSettings,
-      updatedAt: serverTimestamp()
-    });
-    await setDoc(docRef, sanitizedPayload, { merge: true });
+    const current = await this.getSettings();
+    const updated: StoreSettings = { ...current, ...newSettings };
+
+    const isBrowser = typeof window !== 'undefined';
+
+    if (isBrowser) {
+      let idToken = '';
+      if (auth?.currentUser) {
+        try {
+          idToken = await auth.currentUser.getIdToken();
+        } catch (e) {
+          console.warn('Failed to obtain Firebase ID Token for settings update:', e);
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (idToken) {
+        headers['Authorization'] = `Bearer ${idToken}`;
+      }
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(updated),
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Failed to save store settings (HTTP ${res.status})`);
+      }
+    } else {
+      const { error } = await supabaseAdmin.from('store_settings').upsert([{
+        id: '1c343c7c-e932-4d4b-9ba1-3c7d54ed2f83',
+        store_name: updated.storeName,
+        logo_url: updated.logoUrl,
+        whatsapp_number: updated.whatsappNumber,
+        phone: updated.phone,
+        facebook_url: updated.facebookUrl,
+        instagram_url: updated.instagramUrl,
+        address: updated.address,
+        working_hours: updated.workingHours,
+        hero_title: updated.heroTitle,
+        hero_subtitle: updated.heroSubtitle,
+        updated_at: new Date().toISOString()
+      }]);
+
+      if (error) {
+        throw new Error(`PostgreSQL store_settings update failed: ${error.message}`);
+      }
+    }
+
     this.clearCache();
     if (typeof window !== 'undefined') {
-      fetch('/api/cache/clear', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'settings'}) }).catch(()=>{});
+      window.dispatchEvent(new CustomEvent('store-settings-updated'));
     }
   }
 };

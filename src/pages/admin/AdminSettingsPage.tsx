@@ -131,7 +131,7 @@ export function AdminSettingsPage({ onSettingsUpdated }: AdminSettingsPageProps)
     const updated: Partial<StoreSettings> = {
       storeName: storeName.trim(),
       tagline: tagline.trim(),
-      logoUrl: logoUrl.trim(),
+      logoUrl: logoUrl.trim() || lightLogoUrl.trim() || darkLogoUrl.trim() || '/logo.svg',
       lightLogoUrl: lightLogoUrl.trim(),
       darkLogoUrl: darkLogoUrl.trim(),
       phone: phone.trim(),
@@ -276,6 +276,7 @@ export function AdminSettingsPage({ onSettingsUpdated }: AdminSettingsPageProps)
                             setUploadingLogo(true);
                             const url = await storageService.uploadLogo(file);
                             setLightLogoUrl(url);
+                            setLogoUrl(url);
                           } catch (err: any) {
                             setError(err.message);
                           } finally {
@@ -328,6 +329,7 @@ export function AdminSettingsPage({ onSettingsUpdated }: AdminSettingsPageProps)
                             setUploadingLogo(true);
                             const url = await storageService.uploadLogo(file);
                             setDarkLogoUrl(url);
+                            setLogoUrl(url);
                           } catch (err: any) {
                             setError(err.message);
                           } finally {

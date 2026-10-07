@@ -12,6 +12,8 @@ import { ComingSoonSection } from '../components/home/ComingSoonSection';
 import { RecommendedProductsSection } from '../components/home/RecommendedProductsSection';
 import { WhatsAppCtaBanner } from '../components/home/WhatsAppCtaBanner';
 import { AboutBeitElSaeedSection } from '../components/home/AboutBeitElSaeedSection';
+import { BundleOffersSection } from '../components/home/BundleOffersSection';
+import { ShopByBrandSection } from '../components/home/ShopByBrandSection';
 import { useAuth } from '../lib/authContext';
 import { ProductCard } from '../components/ProductCard';
 
@@ -20,6 +22,7 @@ interface HomePageProps {
 }
 
 export function HomePage({ navigate }: HomePageProps) {
+  console.log('[BOOT 6] HomePage render started');
   const { user, isAdmin, favoriteIds } = useAuth();
   const [data, setData] = useState<HomeCatalogData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +86,7 @@ export function HomePage({ navigate }: HomePageProps) {
   const showLimitedOffers = homepageSettings.limitedOffersEnabled !== false && limitedOffers && limitedOffers.length > 0;
   const showComingSoon = homepageSettings.comingSoonEnabled !== false && comingSoonItems && comingSoonItems.length > 0;
 
+  console.log('[BOOT 9] UI rendering products. Count:', newArrivals?.length);
   return (
     <div className="w-full space-y-6 sm:space-y-10 pb-16" dir="rtl">
       
@@ -116,6 +120,9 @@ export function HomePage({ navigate }: HomePageProps) {
           onSelectCategory={(slug) => navigate(`/category/${slug}`)}
         />
       )}
+
+      {/* 4. Shop By Brand Section (تسوق حسب الماركة والشركة) */}
+      <ShopByBrandSection onNavigate={(path) => navigate(path)} />
 
       {/* customer-specific Favorites Section (❤️ مفضلتك) */}
       {user && !isAdmin && (
@@ -201,6 +208,9 @@ export function HomePage({ navigate }: HomePageProps) {
           onExpire={loadData}
         />
       )}
+
+      {/* Bundle Offers Section (العروض المركبة وباقات التوفير 2 في 1) */}
+      <BundleOffersSection onSelectBundle={(slug) => navigate(`/offer/${slug}`)} />
 
       {/* Legacy Limited Time Offers (if configured) */}
       {showLimitedOffers && (

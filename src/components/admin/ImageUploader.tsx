@@ -53,6 +53,9 @@ export function ImageUploader({
   onUploadStateChange
 }: ImageUploaderProps) {
   const [images, setImages] = useState<UploadingImage[]>([]);
+  const imagesRef = useRef<UploadingImage[]>([]);
+  imagesRef.current = images;
+
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [urlInput, setUrlInput] = useState('');
@@ -67,37 +70,40 @@ export function ImageUploader({
   useEffect(() => {
     const propUrls = [
       ...(mainImageUrl ? [mainImageUrl] : []),
-      ...additionalImages
+      ...(additionalImages || [])
     ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
 
-    setImages((prev) => {
-      // Keep currently uploading or failed images
-      const activeUploads = prev.filter((img) => img.status === 'uploading' || img.status === 'failed');
+    const prev = imagesRef.current;
+    const activeUploads = prev.filter((img) => img.status === 'uploading' || img.status === 'failed');
 
-      // Map parent props to uploaded images, preserving any existing state matches
-      const uploadedImages: UploadingImage[] = propUrls.map((url) => {
-        const found = prev.find((img) => img.url === url || img.previewUrl === url);
-        if (found) return found;
-        return {
-          id: url, // use URL as ID for stable keys
-          previewUrl: url,
-          url,
-          status: 'uploaded' as const
-        };
-      });
-
-      // Combine and return
-      const combined = [...uploadedImages];
-      activeUploads.forEach((img) => {
-        if (!combined.some((c) => c.id === img.id)) {
-          combined.push(img);
-        }
-      });
-      return combined;
+    const uploadedImages: UploadingImage[] = propUrls.map((url) => {
+      const found = prev.find((img) => img.url === url || img.previewUrl === url);
+      if (found) return found;
+      return {
+        id: url,
+        previewUrl: url,
+        url,
+        status: 'uploaded' as const
+      };
     });
+
+    const combined = [...uploadedImages];
+    activeUploads.forEach((img) => {
+      if (!combined.some((c) => c.id === img.id)) {
+        combined.push(img);
+      }
+    });
+
+    // Check if combined is actually different from current images to avoid unnecessary re-renders
+    const currentIds = prev.map(i => i.id).join(',');
+    const newIds = combined.map(i => i.id).join(',');
+    if (currentIds !== newIds) {
+      setImages(combined);
+      imagesRef.current = combined;
+    }
   }, [mainImageUrl, additionalImages]);
 
-  // 2. Notify parent of upload state change
+  // 2. Notify parent of upload state change safely
   useEffect(() => {
     const isCurrentlyUploading = images.some((img) => img.status === 'uploading');
     if (onUploadStateChange) {
@@ -108,7 +114,7 @@ export function ImageUploader({
   // 3. Clean up blob object URLs to prevent memory leaks
   useEffect(() => {
     return () => {
-      images.forEach((img) => {
+      imagesRef.current.forEach((img) => {
         if (img.previewUrl.startsWith('blob:')) {
           try {
             URL.revokeObjectURL(img.previewUrl);
@@ -119,6 +125,52 @@ export function ImageUploader({
       });
     };
   }, []);
+
+  const propagateChangesToParent = (currentImages: UploadingImage[], forcedMainUrl?: string) => {
+    const uploadedList = currentImages.filter((img) => img.status === 'uploaded' && img.url);
+    const uploadedUrls = uploadedList.map((img) => img.url as string);
+
+    if (uploadedUrls.length === 0) {
+      if (mainImageUrl !== '' || (additionalImages && additionalImages.length > 0)) {
+        onChange('', []);
+      }
+      return;
+    }
+
+    let newMain = forcedMainUrl || mainImageUrl;
+    if (!uploadedUrls.includes(newMain) || !newMain) {
+      newMain = uploadedUrls[0];
+    }
+
+    const newAdditional = uploadedUrls.filter((url) => url !== newMain);
+
+    const isSame = newMain === mainImageUrl &&
+      newAdditional.length === (additionalImages || []).length &&
+      newAdditional.every((val, idx) => val === additionalImages[idx]);
+
+    if (!isSame) {
+      console.log('[ImageUploader] Propagating uploaded URLs to parent:', {
+        newMain,
+        newAdditionalCount: newAdditional.length
+      });
+      onChange(newMain, newAdditional);
+    }
+
+    // Assign color automatically to newly uploaded images if a preset color is selected
+    if (selectedColorForNewImages && onImageColorMapChange) {
+      const updatedMap = { ...imageColorMap };
+      let mapChanged = false;
+      uploadedUrls.forEach((url) => {
+        if (!updatedMap[url]) {
+          updatedMap[url] = selectedColorForNewImages;
+          mapChanged = true;
+        }
+      });
+      if (mapChanged) {
+        onImageColorMapChange(updatedMap);
+      }
+    }
+  };
 
   const handleAddUrl = (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,11 +189,10 @@ export function ImageUploader({
       status: 'uploaded' as const
     };
 
-    setImages((prev) => {
-      const updated = [...prev, newImage];
-      propagateChangesToParent(updated);
-      return updated;
-    });
+    const updated = [...imagesRef.current, newImage];
+    imagesRef.current = updated;
+    setImages(updated);
+    propagateChangesToParent(updated);
 
     setUrlInput('');
   };
@@ -161,7 +212,9 @@ export function ImageUploader({
       };
     });
 
-    setImages((prev) => [...prev, ...newUploads]);
+    const updated = [...imagesRef.current, ...newUploads];
+    imagesRef.current = updated;
+    setImages(updated);
 
     // Start uploads in parallel
     newUploads.forEach((img) => {
@@ -182,65 +235,40 @@ export function ImageUploader({
         throw new Error('فشل الرفع: تعذر تخزين الملف كـ URL صالح.');
       }
 
-      setImages((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id === img.id) {
-            return {
-              ...item,
-              status: 'uploaded' as const,
-              url: uploadedUrl
-            };
-          }
-          return item;
-        });
-        propagateChangesToParent(updated);
-        return updated;
+      console.log('[ImageUploader] Upload completed for file:', {
+        file: img.file.name,
+        uploadedUrl
       });
+
+      const updated = imagesRef.current.map((item) => {
+        if (item.id === img.id) {
+          return {
+            ...item,
+            status: 'uploaded' as const,
+            url: uploadedUrl
+          };
+        }
+        return item;
+      });
+
+      imagesRef.current = updated;
+      setImages(updated);
+      propagateChangesToParent(updated, uploadedUrl);
 
     } catch (err: any) {
-      console.error('File upload failed:', err);
-      setImages((prev) =>
-        prev.map((item) => {
-          if (item.id === img.id) {
-            return {
-              ...item,
-              status: 'failed' as const,
-              error: err?.message || 'فشل رفع الصورة'
-            };
-          }
-          return item;
-        })
-      );
-    }
-  };
-
-  const propagateChangesToParent = (currentImages: UploadingImage[]) => {
-    const uploadedList = currentImages.filter((img) => img.status === 'uploaded' && img.url);
-    const uploadedUrls = uploadedList.map((img) => img.url as string);
-
-    if (uploadedUrls.length === 0) {
-      onChange('', []);
-      return;
-    }
-
-    // Keep the current main image if it is still valid and uploaded
-    let newMain = mainImageUrl;
-    if (!uploadedUrls.includes(newMain)) {
-      newMain = uploadedUrls[0];
-    }
-
-    const newAdditional = uploadedUrls.filter((url) => url !== newMain);
-    onChange(newMain, newAdditional);
-
-    // Assign color automatically to newly uploaded images if a preset color is selected
-    if (selectedColorForNewImages && onImageColorMapChange) {
-      const updatedMap = { ...imageColorMap };
-      uploadedUrls.forEach((url) => {
-        if (!updatedMap[url]) {
-          updatedMap[url] = selectedColorForNewImages;
+      console.error('[ImageUploader] File upload failed:', err);
+      const updated = imagesRef.current.map((item) => {
+        if (item.id === img.id) {
+          return {
+            ...item,
+            status: 'failed' as const,
+            error: err?.message || 'فشل رفع الصورة'
+          };
         }
+        return item;
       });
-      onImageColorMapChange(updatedMap);
+      imagesRef.current = updated;
+      setImages(updated);
     }
   };
 
@@ -312,26 +340,24 @@ export function ImageUploader({
   };
 
   const deleteImageById = (id: string) => {
-    setImages((prev) => {
-      const target = prev.find((img) => img.id === id);
-      if (target?.previewUrl.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(target.previewUrl);
-        } catch (e) {}
-      }
+    const target = imagesRef.current.find((img) => img.id === id);
+    if (target?.previewUrl.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(target.previewUrl);
+      } catch (e) {}
+    }
 
-      const updated = prev.filter((img) => img.id !== id);
-      propagateChangesToParent(updated);
+    const updated = imagesRef.current.filter((img) => img.id !== id);
+    imagesRef.current = updated;
+    setImages(updated);
+    propagateChangesToParent(updated);
 
-      // Clean up from color map if the image had a final URL
-      if (target?.url && onImageColorMapChange && imageColorMap[target.url]) {
-        const newMap = { ...imageColorMap };
-        delete newMap[target.url];
-        onImageColorMapChange(newMap);
-      }
-
-      return updated;
-    });
+    // Clean up from color map if the image had a final URL
+    if (target?.url && onImageColorMapChange && imageColorMap[target.url]) {
+      const newMap = { ...imageColorMap };
+      delete newMap[target.url];
+      onImageColorMapChange(newMap);
+    }
   };
 
   const handleSetImageColor = (url: string, colorName: string) => {

@@ -6,6 +6,7 @@ import { DEFAULT_STORE_SETTINGS } from './lib/data/seedData';
 import { AuthProvider, useAuth } from './lib/authContext';
 import { ThemeProvider } from './lib/themeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { getSupabaseBrowserClient } from './lib/data/supabaseClient';
 
 // Public Components & Pages (Commented for isolation)
 import { Header } from './components/Header';
@@ -31,6 +32,8 @@ import { CartPage } from './pages/CartPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { InvoicePrintPage } from './pages/InvoicePrintPage';
+import { BundleDetailPage } from './pages/BundleDetailPage';
+import { CompanyDetailPage } from './pages/CompanyDetailPage';
 
 // Admin Components & Pages
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
@@ -38,6 +41,7 @@ import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
 import { AdminHomepagePage } from './pages/admin/AdminHomepagePage';
 import { AdminProductsPage } from './pages/admin/AdminProductsPage';
+import { AdminCompaniesPage } from './pages/admin/AdminCompaniesPage';
 import { AdminCategoriesPage } from './pages/admin/AdminCategoriesPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminOrdersPage } from './pages/admin/AdminOrdersPage';
@@ -49,26 +53,57 @@ import { AdminPromotionsPage } from './pages/admin/AdminPromotionsPage';
 import { AdminAuditLogPage } from './pages/admin/AdminAuditLogPage';
 import { AdminInstallmentsPage } from './pages/admin/AdminInstallmentsPage';
 import { AdminInsurancePage } from './pages/admin/AdminInsurancePage';
+import { AdminBundlesPage } from './pages/admin/AdminBundlesPage';
 
 function StoreApp() {
+  console.log('[BOOT 5] StoreApp render started');
   const { currentPath, navigate } = useRouter();
   const { loginPromptOpen, closeLoginPrompt, toastMessage } = useAuth();
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_STORE_SETTINGS);
 
   useEffect(() => {
+    console.log('[BOOT 7] StoreApp mounted, loading settings...');
     async function initSettings() {
       try {
+        console.log('[DIAGNOSTIC] App started, checking settings...');
         const data = await settingsService.getSettings();
+        console.log('[DIAGNOSTIC] Settings loaded:', !!data);
         setSettings(data);
       } catch (e) {
         console.warn('Using default settings fallback:', e);
       }
     }
     initSettings();
+
+    const handleSettingsUpdated = () => {
+      initSettings();
+    };
+    window.addEventListener('store-settings-updated', handleSettingsUpdated);
+
+    // Additional Supabase Browser Diagnostic (static, no dynamic split chunk)
+    const checkSupabase = async () => {
+      try {
+        const client = getSupabaseBrowserClient();
+        console.log('[DIAGNOSTIC] Supabase Client Initialized:', !!client);
+        if (client) {
+          const { data, error } = await client.from('products').select('id');
+          console.log('[DIAGNOSTIC] Products query success:', !error);
+          if (error) console.error('[DIAGNOSTIC] Products query error:', error);
+          console.log('[DIAGNOSTIC] Products total visible count:', data?.length || 0);
+        }
+      } catch (err) {
+        console.error('[DIAGNOSTIC] Supabase check failed:', err);
+      }
+    };
+    checkSupabase();
+    return () => {
+      window.removeEventListener('store-settings-updated', handleSettingsUpdated);
+    };
   }, []);
 
   // Parse path & parameters
   const { route, param, searchParams, isNotFound } = useMemo(() => {
+    // ... same logic ...
     const urlParts = currentPath.split('?');
     const pathOnly = urlParts[0] || '/';
     const queryString = urlParts[1] || '';
@@ -88,6 +123,26 @@ function StoreApp() {
         param = decodeURIComponent(raw);
       } catch {}
       return { route: 'product-detail', param, searchParams: params, isNotFound: false };
+    }
+    if (pathOnly.startsWith('/offer/') || pathOnly.startsWith('/bundle/')) {
+      const raw = pathOnly.startsWith('/offer/') ? pathOnly.replace('/offer/', '') : pathOnly.replace('/bundle/', '');
+      let param = raw;
+      try {
+        param = decodeURIComponent(raw);
+      } catch {}
+      return { route: 'bundle-detail', param, searchParams: params, isNotFound: false };
+    }
+    if (pathOnly.startsWith('/company/') || pathOnly.startsWith('/brand/') || pathOnly.startsWith('/companies/')) {
+      const raw = pathOnly.startsWith('/company/') 
+        ? pathOnly.replace('/company/', '') 
+        : pathOnly.startsWith('/brand/') 
+        ? pathOnly.replace('/brand/', '') 
+        : pathOnly.replace('/companies/', '');
+      let param = raw;
+      try {
+        param = decodeURIComponent(raw);
+      } catch {}
+      return { route: 'company-detail', param, searchParams: params, isNotFound: false };
     }
     if (pathOnly.startsWith('/categories/') || pathOnly.startsWith('/category/')) {
       const raw = pathOnly.startsWith('/categories/') ? pathOnly.replace('/categories/', '') : pathOnly.replace('/category/', '');
@@ -168,8 +223,8 @@ function StoreApp() {
   // Determine the mobile action bar height dynamically based on route
   const mobileActionBarHeight = useMemo(() => {
     const pathOnly = currentPath.split('?')[0] || '/';
-    if (pathOnly.startsWith('/product/') || route === 'product-detail') {
-      return '72px'; // Height of the sticky buy/whatsapp bar on product page
+    if (pathOnly.startsWith('/product/') || route === 'product-detail' || pathOnly.startsWith('/offer/') || pathOnly.startsWith('/bundle/') || route === 'bundle-detail') {
+      return '72px'; // Height of the sticky buy/whatsapp bar on product and bundle pages
     }
     if (pathOnly === '/cart') {
       return '80px'; // Height of the sticky checkout bar on cart page
@@ -217,6 +272,10 @@ function StoreApp() {
         return <CategoryDetailPage slug={param} navigate={navigate} />;
       case 'product-detail':
         return <ProductDetailPage slug={param} navigate={navigate} />;
+      case 'bundle-detail':
+        return <BundleDetailPage slug={param} navigate={navigate} settings={settings} />;
+      case 'company-detail':
+        return <CompanyDetailPage slug={param} navigate={navigate} settings={settings} />;
       case '/about':
         return <AboutPage settings={settings} navigate={navigate} />;
       case '/contact':
@@ -248,6 +307,8 @@ function StoreApp() {
         return <AdminHomepagePage navigate={navigate} />;
       case '/admin/products':
         return <AdminProductsPage />;
+      case '/admin/companies':
+        return <AdminCompaniesPage navigate={navigate} />;
       case '/admin/categories':
         return <AdminCategoriesPage />;
       case '/admin/orders':
@@ -262,6 +323,8 @@ function StoreApp() {
         return <AdminAnalyticsPage />;
       case '/admin/promotions':
         return <AdminPromotionsPage />;
+      case '/admin/bundles':
+        return <AdminBundlesPage navigate={navigate} settings={settings} />;
       case '/admin/audit-logs':
         return <AdminAuditLogPage />;
       case '/admin/installments':
@@ -358,7 +421,8 @@ function StoreApp() {
 }
 
 export default function App() {
-  return (
+  console.log('[BOOT]\nApp render started');
+  const appElement = (
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
@@ -367,4 +431,6 @@ export default function App() {
       </ThemeProvider>
     </ErrorBoundary>
   );
+  console.log('[BOOT]\nApp render completed');
+  return appElement;
 }

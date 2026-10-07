@@ -121,6 +121,12 @@ export interface Product {
   averageRating?: number;
   reviewCount?: number;
   installmentConfig?: ProductInstallmentConfig;
+  companyId?: string;
+  isDeleted?: boolean;
+  viewsCount?: number;
+  purchasesCount?: number;
+  ratingAverage?: number;
+  reviewsCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -138,9 +144,13 @@ export interface Review {
   comment: string;
   verifiedPurchase: boolean;
   status: ReviewStatus;
+  isApproved?: boolean; // compatibility
   createdAt: string;
   updatedAt: string;
+  id?: string; // compatibility
 }
+
+export type ProductReview = Review;
 
 export interface WhatsAppNotificationToggles {
   NEW_ORDER: boolean;
@@ -234,6 +244,7 @@ export interface LimitedOffer {
   endDate: string;
   endTime: string;
   isActive: boolean;
+  sortOrder?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -280,7 +291,7 @@ export interface NewsTickerItem {
   updatedAt?: string;
 }
 
-export type HeroTargetType = 'product' | 'category' | 'page' | 'offer' | 'external';
+export type HeroTargetType = 'product' | 'category' | 'page' | 'offer' | 'external' | 'bundle' | 'bundle_offer' | 'none' | 'link';
 
 export type BannerPlacement =
   | 'home_hero'
@@ -371,6 +382,8 @@ export interface UserFavoriteItem {
   slug: string;
   addedAt: string;
   groupName?: string; // e.g. 'أدوات المطبخ', 'هدايا للمستقبل'
+  userUid?: string;
+  user_uid?: string;
 }
 
 export interface WishlistGroup {
@@ -392,23 +405,75 @@ export interface RecentlyViewedItem {
   categoryName?: string;
   slug: string;
   viewedAt: string;
+  userUid?: string;
+  user_uid?: string;
+}
+
+export interface BundleInstallmentPlan {
+  providerId?: string;
+  providerName?: string;
+  months: number; // e.g. 12
+  monthlyPayment: number; // e.g. 150 EGP
+  downPayment: number; // e.g. 0 EGP or 500 EGP
+  totalAmount?: number; // e.g. 1800 EGP
+  interestRate?: number;
+  adminFees?: number;
+  notes?: string;
+  isDefault?: boolean;
+}
+
+export interface BundleOffer {
+  id: string; // e.g. 'sa3a-samaha-2in1'
+  name: string; // e.g. "ساعة + سماعة"
+  slug: string; // e.g. "sa3a-samaha-2in1"
+  description: string;
+  badgeText?: string; // e.g. "2 في 1" أو "عرض التوفير"
+  imageUrl: string; // Supabase Storage public URL
+  productIds: string[]; // Reference array of product IDs in Firestore (no duplicate product data!)
+  hasSpecialPrice?: boolean;
+  bundlePrice: number; // Final special bundle offer price
+  originalTotalPrice?: number; // Sum of individual product prices
+  installmentEnabled: boolean;
+  installmentHeadline?: string; // e.g. "150 جنيه شهريًا"
+  installmentPlans?: BundleInstallmentPlan[];
+  defaultPlan?: BundleInstallmentPlan;
+  isActive: boolean;
+  startAt?: string;
+  endAt?: string;
+  viewsCount?: number;
+  clicksCount?: number;
+  purchasesCount?: number;
+  sortOrder?: number;
+  showOnHome?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface UserCartItem {
-  id: string; // productId
+  id: string; // productId or bundleId
   productId: string;
   quantity: number;
   addedAt: string;
   updatedAt: string;
+  bundleId?: string;
+  isBundle?: boolean;
+  bundlePrice?: number;
+  selectedInstallmentPlan?: BundleInstallmentPlan;
 }
 
 export interface ResolvedCartItem {
-  id: string; // productId
+  id: string; // productId or bundleId
   productId: string;
   quantity: number;
   addedAt: string;
   updatedAt: string;
   product: Product;
+  bundleId?: string;
+  isBundle?: boolean;
+  bundle?: BundleOffer;
+  bundlePrice?: number;
+  bundleProducts?: Product[];
+  selectedInstallmentPlan?: BundleInstallmentPlan;
 }
 
 export interface OrderItem {
@@ -418,6 +483,17 @@ export interface OrderItem {
   priceAtPurchase: number;
   quantity: number;
   lineTotal: number;
+  bundleId?: string;
+  bundleName?: string;
+  isBundle?: boolean;
+  bundleItems?: Array<{
+    productId: string;
+    productName: string;
+    productImage?: string;
+    originalPrice: number;
+    sku?: string;
+  }>;
+  installmentPlan?: BundleInstallmentPlan;
 }
 
 export type OrderStatus = 'new' | 'confirmed' | 'preparing' | 'ready_to_ship' | 'shipped' | 'delivered' | 'cancelled';
@@ -506,7 +582,7 @@ export interface Order {
 }
 
 export interface Address {
-  addressId: string;
+  addressId?: string;
   label: string;
   recipientName: string;
   phone: string;
@@ -518,8 +594,8 @@ export interface Address {
   floor: string;
   notes?: string;
   isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type NotificationType = 
@@ -544,6 +620,9 @@ export type RelatedType = 'order' | 'product' | 'promotion' | 'system' | 'custom
 
 export interface Notification {
   notificationId: string;
+  id?: string;
+  userUid?: string;
+  user_uid?: string;
   type: NotificationType;
   title: string;
   message: string;
@@ -688,5 +767,27 @@ export interface AuditLogFilters {
 }
 
 export * from './types/insurance';
+
+export type CompanyClickAction = 'company_page' | 'external_url' | 'category' | 'product';
+
+export interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string;
+  description?: string;
+  isActive: boolean;
+  clickAction?: CompanyClickAction;
+  targetValue?: string;
+  sortOrder?: number;
+  featuredOnHome?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+import { FinancingProvider, InstallmentPlan } from './types/installment';
+export type InstallmentProvider = FinancingProvider;
+export type { InstallmentPlan };
+export type AuditLog = AuditLogEntry;
 
 

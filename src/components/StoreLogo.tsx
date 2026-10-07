@@ -29,19 +29,18 @@ export function StoreLogo({
 
   const resolveLogo = () => {
     const { lightLogoUrl, darkLogoUrl, logoUrl } = settings;
+    const isCustom = (url?: string) => Boolean(url && url.trim() !== '' && url !== '/logo.svg');
     
     if (theme === 'light') {
-      // Light Theme Priority
-      if (lightLogoUrl && lightLogoUrl.trim() !== '') return lightLogoUrl;
-      if (darkLogoUrl && darkLogoUrl.trim() !== '') return darkLogoUrl;
-      if (logoUrl && logoUrl.trim() !== '') return logoUrl;
-      return fallbackLogo;
+      if (isCustom(lightLogoUrl)) return lightLogoUrl!;
+      if (isCustom(logoUrl)) return logoUrl!;
+      if (isCustom(darkLogoUrl)) return darkLogoUrl!;
+      return (lightLogoUrl || logoUrl || darkLogoUrl || fallbackLogo).trim();
     } else {
-      // Dark Theme Priority
-      if (darkLogoUrl && darkLogoUrl.trim() !== '') return darkLogoUrl;
-      if (lightLogoUrl && lightLogoUrl.trim() !== '') return lightLogoUrl;
-      if (logoUrl && logoUrl.trim() !== '') return logoUrl;
-      return fallbackLogo;
+      if (isCustom(darkLogoUrl)) return darkLogoUrl!;
+      if (isCustom(logoUrl)) return logoUrl!;
+      if (isCustom(lightLogoUrl)) return lightLogoUrl!;
+      return (darkLogoUrl || logoUrl || lightLogoUrl || fallbackLogo).trim();
     }
   };
 
